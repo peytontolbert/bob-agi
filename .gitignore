@@ -1,0 +1,7 @@
+.env
+edge_user_data/
+chrome_user_data/
+*.pyc
+prompts/
+__pycache__/
+*.log
