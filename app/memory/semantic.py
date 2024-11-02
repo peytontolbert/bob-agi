@@ -74,3 +74,16 @@ class SemanticKnowledgeSystem:
         """
         # Placeholder - replace with actual embedding logic
         return np.random.rand(384)
+        
+    def get_related_concepts(self, concept_term: str, max_depth: int = 2) -> List[str]:
+        """
+        Gets concepts related to the given term up to a specified network depth.
+        
+        Args:
+            concept_term: The concept to find relations for
+            max_depth: Maximum depth to traverse in semantic network
+            
+        Returns:
+            List of related concept terms
+        """
+        return self.find_related_concepts(concept_term, max_depth)

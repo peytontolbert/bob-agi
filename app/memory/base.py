@@ -14,6 +14,7 @@ from .procedural import ProceduralKnowledgeSystem
 from .semantic import SemanticKnowledgeSystem
 from .spatial import SpatialKnowledgeSystem
 from .temporal import TemporalKnowledgeSystem
+from .internalmonologue import InternalMonologue
 
 class BaseMemorySystem:
     def __init__(self):
@@ -30,7 +31,7 @@ class BaseMemorySystem:
         self.semantic = SemanticKnowledgeSystem(self.knowledge_system)
         self.spatial = SpatialKnowledgeSystem(self.knowledge_system)
         self.temporal = TemporalKnowledgeSystem(self.knowledge_system)
-        
+        self.internal_monologue = InternalMonologue(self.knowledge_system)
         self.memories: List[Dict[str, Any]] = []
         logging.info("BaseMemorySystem initialized with all subsystems")
 
@@ -56,6 +57,8 @@ class BaseMemorySystem:
                     self.temporal.add_temporal_event(memory)
                 elif memory['type'] == 'autobiographical':
                     self.autobiographical.store_experience(memory)
+                elif memory['type'] == 'internal_monologue':
+                    self.internal_monologue.store_inner_thought(memory)
                     
             logging.debug(f"Memory added: {memory}")
             return True

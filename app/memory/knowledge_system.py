@@ -208,19 +208,149 @@ class KnowledgeSystem:
             logging.error(f"Error retrieving knowledge: {e}")
             return []
 
+    def _get_important_knowledge(self, threshold: float = 0.5) -> List[Dict[str, Any]]:
+        """
+        Retrieves knowledge entries above an importance threshold.
+        
+        Args:
+            threshold: Minimum importance score (0-1)
+            
+        Returns:
+            List of important knowledge entries with metadata
+        """
+        try:
+            important_entries = []
+            for idx, score in enumerate(self.importance_scores):
+                if score >= threshold:
+                    important_entries.append({
+                        'metadata': self.metadata[idx],
+                        'importance_score': score
+                    })
+            
+            # Sort by importance score
+            important_entries.sort(key=lambda x: x['importance_score'], reverse=True)
+            return important_entries
+            
+        except Exception as e:
+            logging.error(f"Error retrieving important knowledge: {e}")
+            return []
+
     def _calculate_importance(self, entry: Dict) -> float:
         """
         Calculates importance score based on multiple factors.
+        
+        Args:
+            entry: Knowledge entry with metadata
+            
+        Returns:
+            Importance score between 0.0 and 1.0
         """
-        # Implementation details for importance calculation
-        pass
+        try:
+            # Factor 1: Recency
+            recency = 0.3
+            if 'creation_time' in entry['metadata']:
+                age = (datetime.now() - entry['metadata']['creation_time']).total_seconds()
+                recency = max(0.0, 1.0 - (age / (24 * 60 * 60)))  # Decay over 24 hours
+                
+            # Factor 2: Access frequency 
+            frequency = 0.2
+            if 'access_count' in entry['metadata']:
+                frequency = min(1.0, entry['metadata']['access_count'] / 10)  # Cap at 10 accesses
+                
+            # Factor 3: Relationship density
+            relationships = 0.2
+            if 'relationships' in entry['metadata']:
+                num_relations = len(entry['metadata']['relationships'])
+                relationships = min(1.0, num_relations / 5)  # Cap at 5 relationships
+                
+            # Factor 4: Context relevance
+            relevance = self._calculate_context_relevance(entry)
+            
+            # Combine factors with weights
+            importance = (0.3 * recency + 
+                         0.2 * frequency +
+                         0.2 * relationships +
+                         0.3 * relevance)
+                         
+            return round(min(1.0, importance), 2)
+            
+        except Exception as e:
+            logging.error(f"Error calculating importance: {e}")
+            return 0.0
+
+    def _calculate_context_relevance(self, entry: Dict) -> float:
+        """
+        Calculates how relevant an entry is to current context.
+        
+        Args:
+            entry: Knowledge entry to evaluate
+            
+        Returns:
+            Relevance score between 0.0 and 1.0
+        """
+        try:
+            current_context = self._get_current_context()
+            
+            # Extract key terms from current context
+            context_terms = set()
+            for key, value in current_context.items():
+                if isinstance(value, dict):
+                    context_terms.update(str(v).lower() for v in value.values())
+                else:
+                    context_terms.add(str(value).lower())
+                    
+            # Extract terms from entry
+            entry_terms = set()
+            if 'metadata' in entry:
+                for value in entry['metadata'].values():
+                    if isinstance(value, (str, int, float)):
+                        entry_terms.add(str(value).lower())
+                        
+            # Calculate overlap
+            if not entry_terms or not context_terms:
+                return 0.0
+                
+            intersection = len(entry_terms.intersection(context_terms))
+            union = len(entry_terms.union(context_terms))
+            
+            return round(intersection / union if union > 0 else 0.0, 2)
+            
+        except Exception as e:
+            logging.error(f"Error calculating context relevance: {e}")
+            return 0.0
 
     def _identify_relationships(self, entry: Dict) -> List[Dict]:
         """
         Identifies relationships with existing knowledge.
+        
+        Args:
+            entry: Knowledge entry to find relationships for
+            
+        Returns:
+            List of relationship dictionaries
         """
-        # Implementation details for relationship identification
-        pass
+        try:
+            relationships = []
+            entry_vector = np.array([entry['vector']]).astype('float32')
+            
+            # Find similar entries
+            distances, indices = self.knowledge_base.search(entry_vector, k=5)
+            
+            for i, idx in enumerate(indices[0]):
+                if idx != -1:  # Valid index
+                    relationship = {
+                        'related_entry_id': self.metadata[idx].get('id'),
+                        'relationship_type': 'similar',
+                        'strength': 1.0 - float(distances[0][i]),  # Convert distance to similarity
+                        'created_at': datetime.now()
+                    }
+                    relationships.append(relationship)
+                    
+            return relationships
+            
+        except Exception as e:
+            logging.error(f"Error identifying relationships: {e}")
+            return []
 
     def search_similar(self, query_vector: np.ndarray, k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -242,3 +372,27 @@ class KnowledgeSystem:
         except Exception as e:
             logging.error(f"Error searching entries: {e}")
             return []
+
+    def _update_access_patterns(self, entries: List[Dict]) -> None:
+        """
+        Updates access patterns for retrieved entries.
+        
+        Args:
+            entries: List of metadata entries that were accessed
+        """
+        try:
+            for entry in entries:
+                if 'id' in entry:  # Find entry in metadata list
+                    idx = next((i for i, m in enumerate(self.metadata) 
+                              if m.get('id') == entry['id']), None)
+                    if idx is not None:
+                        # Update access count and timestamp
+                        self.metadata[idx]['access_count'] = self.metadata[idx].get('access_count', 0) + 1
+                        self.metadata[idx]['last_access'] = datetime.now()
+                        
+                        # Recalculate importance score
+                        self.importance_scores[idx] = self._calculate_importance({
+                            'metadata': self.metadata[idx]
+                        })
+        except Exception as e:
+            logging.error(f"Error updating access patterns: {e}")

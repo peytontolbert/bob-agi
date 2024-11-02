@@ -5,3 +5,5 @@ chrome_user_data/
 prompts/
 __pycache__/
 *.log
+*.pt
+models/

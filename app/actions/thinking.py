@@ -31,6 +31,10 @@ class Thinking:
         # Add last reflection time
         self.last_reflection_time = datetime.now()
         
+        # Initialize thinking thread
+        self.thinking_thread = None
+        self.should_think = False
+        
         self.start_thinking()
     
     def start_thinking(self):
@@ -64,8 +68,11 @@ class Thinking:
                 # Gather comprehensive context
                 current_context = self._gather_context()
                 
-                # Generate primary thought
-                new_thought = self.generate_thoughts(current_context)
+                # Get inner thought from internal monologue system
+                inner_thought = self.memory_system.internal_monologue.generate_inner_thought(current_context)
+                
+                # Generate primary thought incorporating internal monologue
+                new_thought = self.generate_thoughts(current_context, inner_thought)
                 
                 # Create rich thought entry
                 thought_entry = {
@@ -73,6 +80,8 @@ class Thinking:
                     'timestamp': datetime.now(),
                     'type': 'autonomous_thought',
                     'context': current_context,
+                    'inner_thought': inner_thought,
+                    'emotional_state': inner_thought['emotional_state'],
                     'metadata': self._generate_thought_metadata(new_thought)
                 }
                 
@@ -89,78 +98,34 @@ class Thinking:
                 logging.error(f"Error in thinking process: {e}")
                 time.sleep(1.0)
     
-    def _gather_context(self):
+    def generate_thoughts(self, context: Dict, inner_thought: Dict) -> str:
         """
-        Enhanced context gathering from all memory systems.
+        Generates new thoughts based on the current context and internal monologue.
         """
-        context = {
-            # Episodic and autobiographical memories
-            'recent_memories': self.memory_system.episodic.get_recent_episodes(limit=5),
-            'personal_experiences': self.memory_system.autobiographical.reflect_on_period(
-                start_date=datetime.now() - timedelta(hours=1),
-                end_date=datetime.now()
-            ),
-            
-            # Current thoughts and semantic knowledge
-            'active_thoughts': self.current_thoughts(),
-            'semantic_knowledge': self.memory_system.semantic.get_related_concepts(
-                concept_term=self._get_current_focus(),
-                max_depth=2
-            ),
-            
-            # Spatial and temporal context
-            'spatial_context': self.memory_system.spatial.get_nearby_locations(
-                location_name=self._get_current_location(),
-                radius=10.0
-            ),
-            'temporal_predictions': self.memory_system.temporal.predict_future_events(
-                context={'current_activity': self._get_current_activity()},
-                time_horizon=timedelta(minutes=30)
-            ),
-            
-            # Procedural and conceptual knowledge
-            'procedural_state': self.memory_system.procedural.get_applicable_skills(
-                context={'current_task': self._get_current_task()}
-            ),
-            'conceptual_knowledge': self.memory_system.conceptual.find_analogies(
-                source_concept=self._get_current_concept(),
-                target_domain=self._get_current_domain()
-            ),
-            
-            # Causal relationships and metacognition
-            'causal_relations': self.memory_system.causal.predict_outcome(
-                cause=self._get_current_situation(),
-                context=self._get_current_context()
-            ),
-            'metacognitive_state': self.memory_system.metacognitive.adjust_cognitive_control(
-                situation={'task_complexity': self._assess_complexity()}
-            ),
-            
-            # Current knowledge base
-            'current_knowledge': self.knowledge_system.get_relevant_knowledge(
-                context=self._get_current_context()
-            )
-        }
-        return context
-    
-    def generate_thoughts(self, context):
-        """
-        Generates new thoughts based on the current context.
-        """
-        prompt = self._create_thought_prompt(context)
+        prompt = self._create_thought_prompt(context, inner_thought)
         thought = self.text_agent.complete_task(prompt)
         return thought
     
-    def _create_thought_prompt(self, context):
+    def _create_thought_prompt(self, context: Dict, inner_thought: Dict) -> str:
         """
-        Creates a prompt for thought generation based on context.
+        Creates an enhanced prompt for thought generation incorporating internal monologue.
         """
         return f"""
-        Based on these recent experiences and current context, generate a relevant thought:
+        Based on these recent experiences, current context, and internal reflection:
+        
         Recent memories: {context.get('recent_memories', [])}
         Active thoughts: {context.get('active_thoughts', [])}
         Current knowledge: {context.get('current_knowledge', [])}
-        Generate a single, coherent thought that reflects current context and priorities.
+        
+        Internal voice: {inner_thought['content']}
+        Current mood: {inner_thought['mood']}
+        Emotional state: {inner_thought['emotional_state']}
+        
+        Generate a single, coherent thought that:
+        1. Integrates the internal perspective
+        2. Reflects current context and priorities
+        3. Shows emotional awareness
+        4. Maintains cognitive continuity
         """
     
     def _add_to_thought_queue(self, thought):
@@ -169,7 +134,7 @@ class Thinking:
         """
         try:
             self.thought_queue.put(thought, block=False)
-            logging.debug(f"New thought added: {thought['content']}")
+            logging.debug(f"New thought added: {thought}")
         except queue.Full:
             logging.warning("Thought queue is full, dropping oldest thought")
             try:
@@ -238,6 +203,14 @@ class Thinking:
             'timestamp': thought_entry['timestamp']
         })
         
+        # Store inner thought in internal monologue memory
+        self.memory_system.add_memory({
+            'type': 'internal_monologue',
+            'content': thought_entry['inner_thought']['content'],
+            'emotional_state': thought_entry['emotional_state'],
+            'timestamp': thought_entry['timestamp']
+        })
+        
         # Update semantic memory with concepts
         concepts = self._extract_concepts(thought_entry['content'])
         self.memory_system.semantic.update_concepts(concepts)
@@ -261,20 +234,24 @@ class Thinking:
     
     def _perform_reflection(self):
         """
-        Performs periodic reflection on recent thoughts and experiences.
+        Enhanced reflection process incorporating internal monologue.
         """
         recent_thoughts = self.current_thoughts()
         reflection_context = self._gather_context()
         
+        # Get emotional summary from internal monologue
+        emotional_summary = self.memory_system.internal_monologue.get_emotional_summary()
+        
         reflection = self.text_agent.complete_task(
-            self._create_reflection_prompt(recent_thoughts, reflection_context)
+            self._create_reflection_prompt(recent_thoughts, reflection_context, emotional_summary)
         )
         
         reflection_entry = {
             'content': reflection,
             'timestamp': datetime.now(),
             'type': 'reflection',
-            'analyzed_thoughts': recent_thoughts
+            'analyzed_thoughts': recent_thoughts,
+            'emotional_state': emotional_summary
         }
         
         # Update memory systems with reflection
@@ -283,9 +260,11 @@ class Thinking:
         
         self.last_reflection_time = datetime.now()
     
-    def _create_reflection_prompt(self, thoughts: List[Dict], context: Dict) -> str:
+    def _create_reflection_prompt(self, thoughts: List[Dict], 
+                                context: Dict, 
+                                emotional_summary: Dict) -> str:
         """
-        Creates a sophisticated prompt for reflection.
+        Creates an enhanced reflection prompt incorporating emotional awareness.
         """
         return f"""
         Analyze recent thoughts and experiences to generate deeper understanding:
@@ -293,9 +272,14 @@ class Thinking:
         Recent thoughts: {thoughts}
         Current context: {context}
         
+        Emotional State:
+        - Current mood: {emotional_summary['mood']}
+        - Emotional dimensions: {emotional_summary['emotional_state']}
+        - Dominant themes: {emotional_summary['dominant_themes']}
+        
         Consider:
         1. Patterns and relationships between thoughts
-        2. Implications and potential future directions
+        2. Emotional progression and impact
         3. Areas requiring more attention or learning
         4. Consistency with existing knowledge
         5. Potential improvements or adaptations
@@ -480,9 +464,9 @@ class Thinking:
             max_depth=1
         ) if concepts else []
         
-        # Analyze causal relationships
-        causal_relations = self.memory_system.causal.find_relations(
-            concepts=concepts
+        # Analyze causal relationships - Fix parameter name from source_concept to concept
+        causal_relations = self.memory_system.causal.find_causal_relations(
+            concept=concepts[0] if concepts else ""
         ) if concepts else []
         
         return {
@@ -575,3 +559,62 @@ class Thinking:
                 spatial_relations.append(relation)
                 
         return spatial_relations
+
+    def _gather_context(self) -> Dict[str, Any]:
+        """
+        Gathers comprehensive context from all available sources.
+        
+        Returns:
+            Dict containing current context information
+        """
+        try:
+            # Get recent memories and thoughts
+            recent_memories = self.memory_system.get_memories({
+                'timestamp': {'$gt': time.time() - 300}  # Last 5 minutes
+            })
+            
+            active_thoughts = self.current_thoughts()
+            
+            # Get current knowledge context
+            current_knowledge = self.knowledge_system.get_relevant_knowledge()
+            
+            # Get computer environment context
+            computer_context = {
+                'location': {
+                    'application': self.knowledge_system.get_active_application(),
+                    'window': self.knowledge_system.get_active_window(),
+                    'view': self.knowledge_system.get_current_view()
+                },
+                'activity': {
+                    'type': self.knowledge_system.get_task_type(),
+                    'objective': self.knowledge_system.get_task_objective(),
+                    'progress': self.knowledge_system.get_task_progress()
+                },
+                'system_state': {
+                    'running_apps': self.knowledge_system.get_running_applications(),
+                    'notifications': self.knowledge_system.get_pending_notifications(),
+                    'resources': self.knowledge_system.get_resource_usage()
+                }
+            }
+
+            # Combine all context information
+            context = {
+                'recent_memories': recent_memories,
+                'active_thoughts': active_thoughts,
+                'current_knowledge': current_knowledge,
+                'computer_context': computer_context,
+                'timestamp': time.time()
+            }
+            
+            return context
+            
+        except Exception as e:
+            logging.error(f"Error gathering context: {e}")
+            # Return minimal context to allow continued operation
+            return {
+                'recent_memories': [],
+                'active_thoughts': [],
+                'current_knowledge': [],
+                'computer_context': {},
+                'timestamp': time.time()
+            }

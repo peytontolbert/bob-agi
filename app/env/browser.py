@@ -9,6 +9,8 @@ import threading
 from PIL import Image
 import io
 import tkinter as tk
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException, WebDriverException
 
 class Browser:
     def __init__(self, audio: Audio = None, microphone: Microphone = None):
@@ -19,6 +21,7 @@ class Browser:
         self.update_interval = 100  # Update screen every 100ms
         self.is_capturing = False
         self.wait = None  # Will store WebDriverWait instance
+        self._default_timeout = 10  # Add default timeout setting
         
         # Initialize Tk root for proper threading
         self.root = tk.Tk()
@@ -29,24 +32,30 @@ class Browser:
         Launches the browser and initializes all components.
         Returns True if successful, False otherwise.
         """
+        logging.info("Starting browser launch...")
         try:
             # Initialize webdriver
             self.setup_webdriver()
             if not self.webdriver:
+                logging.error("WebDriver is None after setup")
                 raise Exception("WebDriver initialization failed")
                 
             # Initialize WebDriverWait
             self.wait = WebDriverWait(self.webdriver, timeout=10)
+            logging.info("WebDriverWait initialized")
                 
             # Start screen capture in main thread
             self.is_capturing = True
+            logging.info("Starting screen capture...")
             self.start_screen_capture()
             
             # Setup audio routing if available
-            if self.audio:
-                self.audio.route_output("browser")
-            if self.microphone:
-                self.microphone.route_input("browser")
+            #if self.audio:
+            #    logging.info("Setting up audio routing...")
+            #    self.audio.route_output("browser")
+            #if self.microphone:
+            #    logging.info("Setting up microphone routing...")
+            #    self.microphone.route_input("browser")
                 
             logging.info("Browser launched successfully")
             return True
@@ -155,3 +164,35 @@ class Browser:
         except Exception as e:
             logging.error(f"Element not found: {by}={value}, Error: {e}")
             raise
+
+    def find_element(self, selector, timeout=None):
+        """
+        Finds an element using CSS selector with timeout.
+        
+        Args:
+            selector (str): CSS selector
+            timeout (int, optional): Timeout in seconds. Uses default if None.
+            
+        Returns:
+            WebElement or None: The found element or None if not found
+        """
+        try:
+            timeout = timeout or self._default_timeout
+            return self.wait_for_element(By.CSS_SELECTOR, selector, timeout)
+        except (TimeoutException, WebDriverException) as e:
+            logging.debug(f"Element not found: {selector}")
+            return None
+
+    def wait_until_loaded(self, timeout=None):
+        """
+        Waits until the page is fully loaded.
+        
+        Returns:
+            bool: True if page loaded, False if timeout
+        """
+        try:
+            timeout = timeout or self._default_timeout
+            self.wait.until(lambda d: d.execute_script('return document.readyState') == 'complete')
+            return True
+        except TimeoutException:
+            return False

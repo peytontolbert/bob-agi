@@ -12,7 +12,7 @@ def main():
     print("Computer initialized.")
     
     # Configure Discord settings
-    AGORA_SERVER_ID = "YOUR_AGORA_SERVER_ID"  # Replace with actual Agora server ID
+    AGORA_SERVER_ID = "999382051935506503"  # Replace with actual Agora server ID
     
     # Initialize Bob with the specific task
     bob = Bob(computer)
@@ -28,11 +28,11 @@ def main():
     }
     
     # Add the task to Bob's thoughts
-    bob.thoughts.add_to_thought_queue(task)
+    bob.thoughts._add_to_thought_queue(task)
     
     # Start Bob's main loop
     try:
-        bob.alive()
+        bob.alive(computer)
     except KeyboardInterrupt:
         print("Shutting down Bob...")
         computer.shutdown()

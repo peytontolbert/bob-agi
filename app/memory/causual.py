@@ -86,3 +86,32 @@ class CausalKnowledgeSystem:
         """Finds evidence supporting a causal relationship."""
         # Placeholder for evidence gathering logic
         return [f"Historical occurrence {i+1}" for i in range(3)]
+    
+    def find_causal_relations(self, concept: str) -> List[Dict]:
+        """
+        Finds causal relationships related to a given concept.
+        
+        Args:
+            concept: The concept to find relations for
+            
+        Returns:
+            List of related causal relationships containing:
+            - Relationships where concept is the cause
+            - Relationships where concept is the effect
+            - Indirect relationships through context
+        """
+        try:
+            relations = []
+            for chain in self.causal_chains.values():
+                # Check direct relationships
+                if concept.lower() in chain['cause'].lower() or concept.lower() in chain['effect'].lower():
+                    relations.append(chain)
+                # Check context relationships
+                elif any(concept.lower() in str(v).lower() for v in chain['context'].values()):
+                    relations.append(chain)
+            
+            return sorted(relations, key=lambda x: x['confidence'], reverse=True)
+            
+        except Exception as e:
+            logging.error(f"Error finding causal relations: {e}")
+            return []

@@ -19,7 +19,7 @@ class VisionAgent(BaseAgent):
         self.yolo_model = YOLO('yolov8x.pt')
         
         # Initialize SAM for precise segmentation
-        self.sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
+        self.sam = sam_model_registry["vit_h"](checkpoint="models/sam_vit_h_4b8939.pth")
         self.sam.to("cuda" if torch.cuda.is_available() else "cpu")
         self.sam_predictor = SamPredictor(self.sam)
         
@@ -120,7 +120,7 @@ class VisionAgent(BaseAgent):
             # For general vision tasks, use GPT-4 Vision
             base64_string = self.encode_image(image)
             response = self.client.chat.completions.create(
-                model="gpt-4-vision-preview",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",

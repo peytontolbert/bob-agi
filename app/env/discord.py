@@ -11,11 +11,14 @@ from app.env.browser import Browser
 import discord
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 class Discord:
     def __init__(self, browser: Browser):
         self.browser = browser
         self.client = None
+        self.current_channel = None
+        self.current_server = None
         self.target_server_id = None
         self.connected = False
         self.discord_url = "https://discord.com/channels/@me"
@@ -26,7 +29,10 @@ class Discord:
             # Navigate to Discord
             self.browser.navigate(self.discord_url)
             
-            
+            # Wait for page to load completely
+            if not self.browser.wait_until_loaded():
+                raise TimeoutException("Discord page failed to load")
+                
             logging.info("Discord launched successfully")
             return True
             

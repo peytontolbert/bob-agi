@@ -76,12 +76,34 @@ class Screen:
 
     def get_current_frame(self):
         """
-        Returns the current frame for Bob's vision processing.
+        Returns the current frame being displayed on screen.
+        
+        Returns:
+            PIL.Image or None: The current screen frame as a PIL Image, or None if no frame is available
         """
-        return self.current_frame
+        try:
+            if self.current_frame is not None:
+                if isinstance(self.current_frame, np.ndarray):
+                    return Image.fromarray(self.current_frame)
+                elif isinstance(self.current_frame, Image.Image):
+                    return self.current_frame
+            return None
+        except Exception as e:
+            logging.error(f"Error getting current frame: {e}")
+            return None
 
     def get_frame_buffer(self):
         """
-        Returns recent frame history for motion detection.
+        Returns the recent frame history buffer.
+        
+        Returns:
+            list: List of recent frames, each as PIL Image
         """
-        return self.frame_buffer
+        try:
+            return [
+                Image.fromarray(frame) if isinstance(frame, np.ndarray) else frame 
+                for frame in self.frame_buffer
+            ]
+        except Exception as e:
+            logging.error(f"Error getting frame buffer: {e}")
+            return []

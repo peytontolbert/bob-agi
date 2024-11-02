@@ -12,6 +12,9 @@ import torch
 from transformers import CLIPProcessor, CLIPModel
 from typing import Dict, Optional, List
 import time
+import collections
+import json
+import threading
 
 class Eyesight:
     def __init__(self, screen):
@@ -23,6 +26,10 @@ class Eyesight:
         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         
+        # Enhanced image buffer with timestamps and metadata
+        self.image_buffer = collections.deque(maxlen=100)  # Store last 100 frames
+        self.embedding_buffer = collections.deque(maxlen=100)  # Store corresponding embeddings
+        
         # Storage for image embeddings and metadata
         self.image_embeddings = []
         self.image_metadata = []
@@ -33,6 +40,10 @@ class Eyesight:
         
         # Initialize element detection confidence threshold
         self.confidence_threshold = 0.7
+        
+        # Connect to screen's frame buffer
+        self.screen.frame_buffer = []  # Initialize frame buffer in screen if not exists
+        self.last_processed_frame_index = -1
         
         self.start_seeing()
 
@@ -128,13 +139,53 @@ class Eyesight:
             logging.error(f"Error processing visual input: {e}")
             return None
 
-    def capture_screen(self):
+    def process_screen_buffer(self):
         """
-        Captures the current screen state and processes it with RAG.
+        Processes new frames from screen's frame buffer.
         """
         try:
-            screenshot = self.screen.capture()
-            
+            current_buffer = self.screen.get_frame_buffer()
+            if not current_buffer:
+                return
+                
+            # Process any new frames
+            for i in range(self.last_processed_frame_index + 1, len(current_buffer)):
+                frame = current_buffer[i]
+                
+                # Generate embedding
+                embedding = self.generate_embedding(frame)
+                
+                # Store frame and embedding in buffers
+                self.image_buffer.append({
+                    'frame': frame,
+                    'timestamp': time.time(),
+                    'index': i
+                })
+                
+                if embedding is not None:
+                    self.embedding_buffer.append({
+                        'embedding': embedding,
+                        'timestamp': time.time(),
+                        'index': i
+                    })
+                
+                # Process frame for visual information
+                self.process_visual_input("Analyze current screen state", frame)
+                
+            self.last_processed_frame_index = len(current_buffer) - 1
+                
+        except Exception as e:
+            logging.error(f"Error processing screen buffer: {e}")
+
+    def capture_screen(self):
+        """
+        Captures and processes the current screen state.
+        """
+        try:
+            screenshot = self.screen.get_current_frame()
+            if screenshot is None:
+                return None
+                
             # Find similar past images
             similar_images = self.find_similar_images(screenshot)
             
@@ -146,28 +197,56 @@ class Eyesight:
             
             input_text = f"{context}\nGiven this context and the current image, describe what you see in detail."
             
-            return self.process_visual_input(input_text, screenshot)
+            # Process the screenshot
+            result = self.process_visual_input(input_text, screenshot)
+            
+            # Update buffers
+            self.process_screen_buffer()
+            
+            return result
+            
         except Exception as e:
             logging.error(f"Error capturing screen: {e}")
             return None
 
     def connect(self):
         """
-        Sets up the eyesight for interaction.
+        Sets up the eyesight for interaction with screen.
         """
         try:
+            # Register with screen's frame buffer
+            if hasattr(self.screen, 'frame_buffer'):
+                self.screen.frame_buffer = []
+            
             # Load existing embeddings if available
-            # Implementation code here
-            pass
+            embedding_path = os.path.join(self.image_dir, "embeddings.npy")
+            metadata_path = os.path.join(self.image_dir, "metadata.json")
+            
+            if os.path.exists(embedding_path) and os.path.exists(metadata_path):
+                self.image_embeddings = np.load(embedding_path)
+                with open(metadata_path, 'r') as f:
+                    self.image_metadata = json.load(f)
+                    
+            logging.info("Eyesight connected to screen system")
+            
         except Exception as e:
             logging.error(f"Error connecting eyesight: {e}")
-    
+
     def start_seeing(self):
         """
-        Starts the eyesight system.
+        Starts the eyesight system and begins processing visual input.
         """
         try:
             self.connect()
+            
+            # Start processing thread for screen buffer
+            def process_buffer_loop():
+                while True:
+                    self.process_screen_buffer()
+                    time.sleep(0.1)  # Process every 100ms
+                    
+            threading.Thread(target=process_buffer_loop, daemon=True).start()
+            
         except Exception as e:
             logging.error(f"Error starting eyesight: {e}")
     
@@ -269,4 +348,21 @@ class Eyesight:
             
         except Exception as e:
             logging.error(f"Error waiting for element: {e}")
+            return None
+
+    def get_screen_state(self):
+        """
+        Returns the current screen state and recent visual memory.
+        """
+        try:
+            current_screen = self.screen.capture()
+            screen_data = {
+                'current': current_screen,
+                'timestamp': datetime.now(),
+                'similar_contexts': self.find_similar_images(current_screen),
+                'elements': self.find_all_elements("*")  # Get all visible elements
+            }
+            return screen_data
+        except Exception as e:
+            logging.error(f"Error getting screen state: {e}")
             return None
