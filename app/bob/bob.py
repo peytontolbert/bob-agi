@@ -15,6 +15,7 @@ from collections import deque
 from time import time, sleep
 import numpy as np
 import logging
+from app.embeddings.embeddings import UnifiedEmbeddingSpace
 
 class Bob:
     def __init__(self, computer):
@@ -57,7 +58,7 @@ class Bob:
 
         # Add thought processing parameters
         self.THOUGHT_INTEGRATION_WINDOW = 30  # Consider thoughts from last 30 seconds
-        self.MIN_THOUGHT_CONFIDENCE = 0.6  # Minimum confidence to act on thoughts
+        self.MIN_THOUGHT_CONFIDENCE = 0.5  # Minimum confidence to act on thoughts
 
         # Add logging configuration
         logging.basicConfig(level=logging.DEBUG)
@@ -67,9 +68,16 @@ class Bob:
         self.last_process_time = time()
         self.process_interval = 0.1  # 100ms processing interval
 
+        # Add embedding space initialization
+        self.embedding_space = UnifiedEmbeddingSpace()
+
+        # Add context tracking
+        self.context_history = deque(maxlen=50)  # Track recent context
+        self.last_scene_understanding = None
+
     def process_environment(self, env):
         """
-        Enhanced environmental processing combining multiple modalities and thoughts.
+        Enhanced environmental processing using unified embedding space and context-aware vision.
         """
         current_time = time()
         processed_data = {
@@ -78,32 +86,39 @@ class Bob:
             'audio': {},
             'context': {},
             'elements': [],
-            'thoughts': {}  # Add thoughts to processed data
+            'thoughts': {},
+            'embeddings': {}
         }
         
-        # Get current thoughts and reflections
+        # Create unified embeddings for all inputs
+        embeddings = self.embedding_space.embed_environmental_input(
+            visual_input=env.get('visual', [])[-1] if env.get('visual') else None,
+            audio_input=env.get('audio'),
+            system_state=env.get('system'),
+            text_input=str(self.interaction_context.get('current_goal'))
+        )
+        processed_data['embeddings'] = embeddings
+
+        # Get current thoughts for context
         current_thoughts = self.thoughts.current_thoughts()
+        thought_context = {
+            'thought_focus': current_thoughts[0]['content'] if current_thoughts else None,
+            'current_goal': self.interaction_context.get('current_goal'),
+            'last_action': self.interaction_context.get('last_action')
+        }
         
-        # Process visual input with multiple models
+        # Process visual input with context-aware scene understanding
         if env.get('visual'):
-            # Get UI element detection from YOLO+SAM
-            detected_elements = self.vision_agent.detect_elements(env['visual'][-1])
-            
-            # Get scene understanding from GPT-4V
-            scene_description = self.vision_agent.complete_task(
-                "Describe the current screen state and context",
-                env['visual'][-1]
+            visual_data = self._process_visual_input(
+                env['visual'][-1], 
+                thought_context
             )
+            processed_data['visual'] = visual_data
             
-            # Update visual processing results
-            processed_data['visual'] = {
-                'elements': detected_elements,
-                'scene_description': scene_description,
-                'timestamp': current_time
-            }
-            
-            # Update active elements in context
-            self.interaction_context['active_elements'] = detected_elements
+            # Update interaction context
+            self.interaction_context['visual_memory'].append(visual_data)
+            if len(self.interaction_context['visual_memory']) > 10:
+                self.interaction_context['visual_memory'].pop(0)
 
         # Process audio input
         if env.get('audio'):
@@ -113,13 +128,6 @@ class Bob:
                 command_response = self.text_agent.complete_task(
                     f"Extract action commands from: {audio_text}"
                 )
-                
-                # Update audio context
-                self.interaction_context['audio_context'].append({
-                    'text': audio_text,
-                    'commands': command_response,
-                    'timestamp': current_time
-                })
                 
                 processed_data['audio'] = {
                     'transcription': audio_text,
@@ -131,17 +139,109 @@ class Bob:
             thought_analysis = self._process_thoughts(current_thoughts)
             processed_data['thoughts'] = thought_analysis
             
-            # Update interaction context with thought-based insights
-            self.interaction_context.update({
-                'current_thoughts': thought_analysis['recent_thoughts'],
-                'thought_focus': thought_analysis['focus'],
-                'cognitive_state': thought_analysis['cognitive_state']
-            })
-
-        # Integrate thoughts with other modalities
+        # Integrate all modalities with embeddings
         processed_data['context'] = self._integrate_modalities(processed_data)
         
+        # Update context history
+        self.context_history.append(processed_data['context'])
+        
         return processed_data
+
+    def _process_visual_input(self, visual_input, thought_context):
+        """
+        Process visual input using context-aware scene understanding.
+        Only detect specific elements when needed for actions.
+        """
+        try:
+            # Get high-level scene understanding using Qwen-VL
+            scene_understanding = self.vision_agent.perceive_scene(
+                visual_input,
+                thought_context
+            )
+            
+            # Store last scene understanding
+            self.last_scene_understanding = scene_understanding
+            
+            visual_data = {
+                'scene_understanding': scene_understanding,
+                'timestamp': time(),
+                'context': thought_context
+            }
+            
+            # Only detect elements if we need precise locations
+            if self._needs_element_detection(thought_context):
+                detected_elements = self.vision_agent.detect_elements(visual_input)
+                visual_data['elements'] = detected_elements
+                
+            return visual_data
+            
+        except Exception as e:
+            self.logger.error(f"Error processing visual input: {e}")
+            return {}
+
+    def _needs_element_detection(self, context):
+        """
+        Determine if we need precise element detection based on context.
+        """
+        if not context:
+            return False
+            
+        # Check if current goal or thought focus suggests need for interaction
+        interaction_indicators = ['click', 'select', 'find', 'locate', 'interact']
+        
+        goal = context.get('current_goal', '').lower()
+        focus = context.get('thought_focus', '').lower()
+        
+        return any(indicator in goal or indicator in focus 
+                  for indicator in interaction_indicators)
+
+    def _integrate_modalities(self, processed_data):
+        """
+        Integrate multiple modalities using embeddings and context history.
+        """
+        # Get unified embedding
+        unified_embedding = processed_data['embeddings'].get('unified')
+        
+        context = {
+            'scene_understanding': processed_data['visual'].get('scene_understanding'),
+            'audio_input': processed_data['audio'].get('transcription', ''),
+            'detected_commands': processed_data['audio'].get('commands', []),
+            'recent_actions': self.interaction_context.get('last_action'),
+            'current_goal': self.interaction_context.get('current_goal'),
+            'current_thoughts': processed_data['thoughts'].get('recent_thoughts', []),
+            'thought_focus': processed_data['thoughts'].get('focus'),
+            'cognitive_state': processed_data['thoughts'].get('cognitive_state')
+        }
+        
+        # Use unified embedding for knowledge retrieval if available
+        if unified_embedding is not None:
+            relevant_knowledge = self.knowledge_system.query_by_embedding(
+                unified_embedding
+            )
+            context['relevant_knowledge'] = relevant_knowledge
+            
+        # Generate integrated understanding
+        context['integrated_understanding'] = self._generate_integrated_understanding(context)
+        
+        return context
+
+    def _generate_integrated_understanding(self, context):
+        """
+        Generate integrated understanding using the text agent.
+        """
+        prompt = f"""
+        Given the current context:
+        Scene: {context['scene_understanding']}
+        Audio: {context['audio_input']}
+        Goal: {context['current_goal']}
+        Recent Action: {context['recent_actions']}
+        Current Focus: {context['thought_focus']}
+        Cognitive State: {context['cognitive_state']}
+        
+        Provide a unified understanding of the current situation and any needed actions.
+        """
+        
+        return self.text_agent.complete_task(prompt)
 
     def _process_thoughts(self, thoughts):
         """
@@ -176,44 +276,6 @@ class Bob:
             'priority_thought': max(recent_thoughts, 
                                   key=lambda x: x.get('metadata', {}).get('priority', 0))
         }
-
-    def _integrate_modalities(self, processed_data):
-        """
-        Integrates multiple modalities including thoughts for unified context understanding.
-        """
-        context = {
-            'visual_elements': processed_data['visual'].get('elements', []),
-            'scene_context': processed_data['visual'].get('scene_description', ''),
-            'audio_input': processed_data['audio'].get('transcription', ''),
-            'detected_commands': processed_data['audio'].get('commands', []),
-            'recent_actions': self.interaction_context.get('last_action'),
-            'current_goal': self.interaction_context.get('current_goal'),
-            'current_thoughts': processed_data['thoughts'].get('recent_thoughts', []),
-            'thought_focus': processed_data['thoughts'].get('focus'),
-            'cognitive_state': processed_data['thoughts'].get('cognitive_state')
-        }
-        
-        # Generate integrated understanding with thoughts
-        prompt = f"""
-        Given the following context:
-        Visual Scene: {context['scene_context']}
-        Detected UI Elements: {len(context['visual_elements'])} elements
-        Audio Input: {context['audio_input']}
-        Current Goal: {context['current_goal']}
-        Recent Action: {context['recent_actions']}
-        
-        Current Thoughts:
-        Focus: {context['thought_focus']}
-        Cognitive State: {context['cognitive_state']}
-        Recent Thoughts: {[t['content'] for t in context['current_thoughts']]}
-        
-        Provide a unified understanding of the current situation and recommended action type.
-        """
-        
-        integrated_understanding = self.text_agent.complete_task(prompt)
-        context['integrated_understanding'] = integrated_understanding
-        
-        return context
 
     def decide_action(self, processed_env):
         """
@@ -439,19 +501,33 @@ class Bob:
 
     def _get_environment(self, computer):
         """
-        Safely gets the current state of Bob's environment.
+        Gets the current state of Bob's environment and generates thoughts based on sensory input.
         """
         try:
+            # Get sensory inputs
+            visual_input = self.eyes.get_screen_state()
+            audio_input = self.hearing.get_audio_input()
+            system_state = computer.get_system_state()
+            
+            # Generate thoughts based on sensory input
+            thoughts = self.thoughts.process_sensory_input({
+                'visual': visual_input,
+                'audio': audio_input,
+                'system': system_state
+            })
+
             return {
-                'visual': self.eyes.get_screen_state(),
-                'audio': self.hearing.get_audio_input(),
-                'system': computer.get_system_state()
+                'visual': visual_input,
+                'audio': audio_input, 
+                'system': system_state,
+                'thoughts': thoughts
             }
         except Exception as e:
             self.logger.error(f"Error getting environment: {e}")
             return {
                 'visual': None,
                 'audio': None,
-                'system': None
+                'system': None,
+                'thoughts': None
             }
 

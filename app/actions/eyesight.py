@@ -45,6 +45,22 @@ class Eyesight:
         self.screen.frame_buffer = []  # Initialize frame buffer in screen if not exists
         self.last_processed_frame_index = -1
         
+        # Add perception stream buffer
+        self.perception_stream = collections.deque(maxlen=300)  # Last 30 seconds at 10fps
+        self.last_perception_time = 0
+        self.PERCEPTION_INTERVAL = 0.1  # 100ms between perceptions
+        
+        # Add embedding storage
+        self.perception_embeddings = []
+        self.embedding_timestamps = []
+        
+        # Start perception thread
+        self.perception_thread = threading.Thread(
+            target=self._continuous_perception,
+            daemon=True
+        )
+        self.perception_thread.start()
+
         self.start_seeing()
 
     def generate_embedding(self, image):
@@ -180,33 +196,30 @@ class Eyesight:
     def capture_screen(self):
         """
         Captures and processes the current screen state.
+        Uses high-level scene understanding for thinking.
         """
         try:
             screenshot = self.screen.get_current_frame()
             if screenshot is None:
+                logging.warning("Failed to capture screen - no frame available")
                 return None
                 
-            # Find similar past images
-            similar_images = self.find_similar_images(screenshot)
+            # Get current thought context
+            context = self._get_thought_context()
             
-            # Create context-aware prompt using similar images
-            context = "Previous similar observations:\n"
-            for img_data in similar_images:
-                if img_data.get('description'):
-                    context += f"- {img_data['description']}\n"
+            # Use QwenVL for high-level scene understanding
+            perception = self.vision_agent.perceive_scene(screenshot, context)
             
-            input_text = f"{context}\nGiven this context and the current image, describe what you see in detail."
+            screen_state = {
+                'timestamp': time.time(),
+                'perception': perception,
+                'context': context
+            }
             
-            # Process the screenshot
-            result = self.process_visual_input(input_text, screenshot)
-            
-            # Update buffers
-            self.process_screen_buffer()
-            
-            return result
+            return screen_state
             
         except Exception as e:
-            logging.error(f"Error capturing screen: {e}")
+            logging.error(f"Error capturing screen: {e}", exc_info=True)
             return None
 
     def connect(self):
@@ -252,45 +265,118 @@ class Eyesight:
     
     def find_element(self, description: str) -> Optional[Dict]:
         """
-        Finds an element on the screen based on description.
-        
-        Args:
-            description: Text description of the element to find (e.g. "blue button", "search box")
-            
-        Returns:
-            Dict containing element info or None if not found:
-            {
-                'type': str,  # Type of element (button, text, link, etc)
-                'text': str,  # Text content if any
-                'coordinates': tuple[int, int],  # (x, y) center position
-                'confidence': float  # Detection confidence score
-            }
+        Finds specific element for action using precise detection.
         """
         try:
-            screenshot = self.screen.capture()
+            current_frame = self.screen.capture()
             
-            # Create a focused prompt for element detection
-            prompt = f"""Find and locate the following element: {description}
-            Provide the element type, any text content, and precise x,y coordinates."""
+            # Use YOLO+SAM for precise element detection
+            elements = self.vision_agent.prepare_for_action(
+                current_frame, 
+                description
+            )
             
-            # Process with vision agent
-            result = self.vision_agent.complete_task(prompt, screenshot)
+            if elements:
+                # Return most confident match
+                best_match = max(elements, key=lambda x: x['confidence'])
+                return best_match
             
-            # Parse the vision agent's response to extract element info
-            # Note: Assuming vision agent returns structured data with coordinates
-            if result and isinstance(result, dict):
-                if result.get('confidence', 0) >= self.confidence_threshold:
-                    return {
-                        'type': result.get('type', 'unknown'),
-                        'text': result.get('text', ''),
-                        'coordinates': result.get('coordinates'),
-                        'confidence': result.get('confidence', 0)
-                    }
             return None
             
         except Exception as e:
             logging.error(f"Error finding element: {e}")
             return None
+
+    def _find_in_perception_stream(self, description: str) -> Optional[Dict]:
+        """
+        Searches recent perception stream for relevant information.
+        """
+        try:
+            # Get last 30 seconds of perceptions
+            recent_perceptions = list(self.perception_stream)
+            
+            if not recent_perceptions:
+                return None
+                
+            # Find most relevant perception
+            best_match = None
+            best_score = 0
+            
+            for perception in recent_perceptions:
+                # Calculate relevance score
+                score = self._calculate_relevance(
+                    description,
+                    perception['perception']['description']
+                )
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = perception
+            
+            if best_score > 0.7:  # Threshold for relevance
+                return best_match
+                
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error searching perception stream: {e}")
+            return None
+
+    def _calculate_relevance(self, query: str, perception: str) -> float:
+        """
+        Calculates semantic relevance between query and perception.
+        """
+        # Implement semantic similarity calculation
+        # Could use cosine similarity between embeddings
+        return 0.0  # Placeholder
+
+    def _continuous_perception(self):
+        """
+        Continuously processes visual input based on current thoughts.
+        """
+        while True:
+            try:
+                current_time = time.time()
+                
+                if current_time - self.last_perception_time >= self.PERCEPTION_INTERVAL:
+                    # Get current frame
+                    frame = self.screen.get_current_frame()
+                    if frame is None:
+                        continue
+                        
+                    # Get current context from Bob's thoughts
+                    context = self._get_thought_context()
+                    
+                    # Get scene perception
+                    perception = self.vision_agent.perceive_scene(frame, context)
+                    
+                    if perception:
+                        # Generate embedding
+                        embedding = self.generate_embedding(frame)
+                        
+                        # Store perception and embedding
+                        self.perception_stream.append({
+                            'perception': perception,
+                            'embedding': embedding,
+                            'timestamp': current_time,
+                            'context': context
+                        })
+                        
+                        self.last_perception_time = current_time
+                        
+            except Exception as e:
+                logging.error(f"Error in continuous perception: {e}")
+                time.sleep(1.0)
+            
+            time.sleep(0.01)
+
+    def _get_thought_context(self):
+        """Gets current thought context from Bob."""
+        # This will be connected to Bob's thought system
+        return {
+            'thought_focus': None,
+            'current_goal': None
+        }
 
     def find_all_elements(self, description: str) -> List[Dict]:
         """

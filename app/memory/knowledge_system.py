@@ -396,3 +396,94 @@ class KnowledgeSystem:
                         })
         except Exception as e:
             logging.error(f"Error updating access patterns: {e}")
+
+    def add_experience(self, experience: Dict[str, Any]) -> bool:
+        """
+        Adds an experience entry to the knowledge system.
+        
+        Args:
+            experience: Dictionary containing:
+                - action: The action performed
+                - result: Result of the action
+                - context: Context in which action was performed
+                
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Convert experience to vector representation
+            vector = self._experience_to_vector(experience)
+            
+            # Create metadata for the experience
+            metadata = {
+                'type': 'experience',
+                'action': experience['action'],
+                'result': experience['result'],
+                'context': experience['context'],
+                'timestamp': datetime.now(),
+                'success': experience['result'].get('success', False)
+            }
+            
+            # Create entry with vector and metadata
+            entry = {
+                'vector': vector,
+                'metadata': metadata
+            }
+            
+            # Add to knowledge base
+            return self.create_entry(entry)
+            
+        except Exception as e:
+            logging.error(f"Error adding experience: {e}")
+            return False
+
+    def _experience_to_vector(self, experience: Dict) -> np.ndarray:
+        """
+        Converts an experience into a vector representation.
+        """
+        try:
+            # Initialize vector with zeros
+            vector = np.zeros(self.dimension, dtype=np.float32)
+            
+            # Extract key information from experience
+            action_type = experience['action'].get('type', '')
+            result_success = experience['result'].get('success', False)
+            context = experience['context']
+            
+            # Simple encoding scheme (can be enhanced with proper embeddings)
+            # Use different ranges of the vector for different aspects
+            vector[0] = 1.0 if result_success else 0.0
+            
+            # Encode action type
+            action_types = ['interaction', 'speech', 'command', 'thought_driven']
+            if action_type in action_types:
+                idx = action_types.index(action_type)
+                vector[1 + idx] = 1.0
+                
+            # Add more sophisticated encoding as needed
+            
+            return vector
+            
+        except Exception as e:
+            logging.error(f"Error converting experience to vector: {e}")
+            return np.zeros(self.dimension, dtype=np.float32)
+
+    def _validate_entry(self, entry):
+        """Validate knowledge entry format"""
+        required_fields = ['content', 'timestamp', 'type']
+        
+        if not isinstance(entry, dict):
+            return False
+            
+        for field in required_fields:
+            if field not in entry:
+                return False
+                
+        return True
+        
+    def add_entry(self, entry):
+        """Add new knowledge entry"""
+        if self._validate_entry(entry):
+            self.entries.append(entry)
+            return True
+        return False

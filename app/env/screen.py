@@ -3,9 +3,14 @@ import tkinter as tk
 import os
 from PIL import Image, ImageTk
 import numpy as np
+import time
+import cv2
 
 class Screen:
     def __init__(self):
+        self.width = 1920
+        self.height = 1080
+        self.current_state = None
         self.ui_elements = []
         self.window = None
         self.canvas = None
@@ -37,6 +42,8 @@ class Screen:
             
         logging.debug("Screen initialized in %s mode", 
                      "container" if self.is_container else "window")
+
+        self.current_state = self.capture()
 
     def update_mouse_position(self, event):
         """
@@ -107,3 +114,100 @@ class Screen:
         except Exception as e:
             logging.error(f"Error getting frame buffer: {e}")
             return []
+
+    def capture(self):
+        """
+        Captures current screen state with enhanced metadata and quality control.
+        
+        Returns:
+            dict: Screen state including timestamp, resolution, UI elements, and quality metrics
+        """
+        try:
+            current_frame = self.get_current_frame()
+            if current_frame is None:
+                logging.warning("Failed to capture current frame")
+                return None
+                
+            # Enhanced screen state with quality metrics
+            screen_state = {
+                'timestamp': time.time(),
+                'resolution': (self.width, self.height),
+                'ui_elements': self.ui_elements.copy(),
+                'frame': current_frame,
+                'mouse_position': self.mouse_position,
+                'quality_metrics': {
+                    'brightness': self._calculate_brightness(current_frame),
+                    'contrast': self._calculate_contrast(current_frame),
+                    'sharpness': self._calculate_sharpness(current_frame)
+                }
+            }
+            
+            # Add frame to buffer with quality check
+            if self._check_frame_quality(current_frame):
+                self.frame_buffer.append({
+                    'frame': current_frame,
+                    'timestamp': time.time(),
+                    'metadata': screen_state
+                })
+                
+                # Maintain buffer size
+                while len(self.frame_buffer) > 100:  # Keep last 100 frames
+                    self.frame_buffer.pop(0)
+                    
+            return screen_state
+            
+        except Exception as e:
+            logging.error(f"Error capturing screen state: {e}")
+            return None
+
+    def _calculate_brightness(self, frame):
+        """Calculate average brightness of frame."""
+        try:
+            if isinstance(frame, Image.Image):
+                frame = np.array(frame)
+            return np.mean(frame)
+        except Exception as e:
+            logging.error(f"Error calculating brightness: {e}")
+            return 0
+
+    def _calculate_contrast(self, frame):
+        """Calculate RMS contrast of frame."""
+        try:
+            if isinstance(frame, Image.Image):
+                frame = np.array(frame)
+            return np.std(frame)
+        except Exception as e:
+            logging.error(f"Error calculating contrast: {e}")
+            return 0
+
+    def _calculate_sharpness(self, frame):
+        """Calculate image sharpness using Laplacian variance."""
+        try:
+            if isinstance(frame, Image.Image):
+                frame = np.array(frame)
+            if len(frame.shape) == 3:
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+            return cv2.Laplacian(frame, cv2.CV_64F).var()
+        except Exception as e:
+            logging.error(f"Error calculating sharpness: {e}")
+            return 0
+
+    def _check_frame_quality(self, frame, min_brightness=10, min_contrast=5, min_sharpness=100):
+        """
+        Check if frame meets minimum quality requirements.
+        """
+        try:
+            brightness = self._calculate_brightness(frame)
+            contrast = self._calculate_contrast(frame)
+            sharpness = self._calculate_sharpness(frame)
+            
+            return (brightness >= min_brightness and 
+                    contrast >= min_contrast and 
+                    sharpness >= min_sharpness)
+        except Exception as e:
+            logging.error(f"Error checking frame quality: {e}")
+            return False
+
+    def display_elements(self, elements):
+        """Update UI elements on screen"""
+        self.ui_elements = elements

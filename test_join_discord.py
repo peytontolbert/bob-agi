@@ -6,7 +6,13 @@ import discord
 from app.env.computer import Computer
 from app.bob.bob import Bob
 
+
+
 def main():
+    # Setup logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
     print("Starting Bob...")
     computer = Computer()
     print("Computer initialized.")
@@ -20,15 +26,21 @@ def main():
     # Configure Discord client
     computer.discord.set_target_server(AGORA_SERVER_ID)
     
-    # Create a task for Bob to join Discord
-    task = {
-        'type': 'join_voice',
-        'server': AGORA_SERVER_ID,
-        'action': 'join_active_channel'  # This will make Bob join the channel with most people
+
+    # Set Bob's current goal to join Discord voice channel
+    bob.interaction_context['current_goal'] = {
+        'type': 'join_voice_channel',
+        'target': 'Agora',
+        'application': 'Discord',
+        'steps': [
+            'open_discord',
+            'navigate_to_agora_server',
+            'find_voice_channel',
+            'join_voice_channel'
+        ]
     }
     
-    # Add the task to Bob's thoughts
-    bob.thoughts._add_to_thought_queue(task)
+    logger.info("Goal set: Join Agora Discord voice channel")
     
     # Start Bob's main loop
     try:

@@ -18,8 +18,9 @@ class Voice:
         Sets up the microphone for interaction and registers the voice with it.
         """
         if self.microphone:
+            stream_id = self.microphone.connect_application("voice")
             self.microphone.register_voice(self)
-            logging.info("Voice connected to Microphone")
+            logging.info(f"Voice connected to Microphone with stream ID: {stream_id}")
         else:
             logging.error("No microphone available to connect to")
 
