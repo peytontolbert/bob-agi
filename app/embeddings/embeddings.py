@@ -7,7 +7,7 @@ import numpy as np
 from typing import Dict, List, Union, Optional, Any
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, Wav2Vec2Processor, Wav2Vec2ForCTC
 from PIL import Image
 import logging
 
@@ -46,15 +46,42 @@ class VisionEncoder(ModalityEncoder):
         return outputs.numpy()
 
 class AudioEncoder(ModalityEncoder):
-    def __init__(self, model_name: str = "speechbrain/spkrec-ecapa-voxceleb"):
+    def __init__(self, model_name: str = "facebook/wav2vec2-base-960h"):
         super().__init__()
-        self.model = AutoModel.from_pretrained(model_name)
+        self.processor = Wav2Vec2Processor.from_pretrained(model_name)
+        self.model = Wav2Vec2ForCTC.from_pretrained(model_name)
         
     def encode(self, audio_data: np.ndarray) -> np.ndarray:
-        # Process audio data and get embeddings
-        with torch.no_grad():
-            embeddings = self.model.encode_batch(audio_data)
-        return embeddings.numpy()
+        """
+        Encode audio using wav2vec2-bert model.
+        
+        Args:
+            audio_data: numpy array of audio waveform (16kHz sampling rate)
+            
+        Returns:
+            numpy array: Audio embeddings
+        """
+        try:
+            # Preprocess audio
+            inputs = self.processor(
+                audio_data, 
+                sampling_rate=16000,
+                return_tensors="pt",
+                padding="longest"
+            )
+            
+            # Get embeddings
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                
+            # Use mean pooling over time dimension
+            embeddings = outputs.last_hidden_state.mean(dim=1)
+            
+            return embeddings.numpy()
+            
+        except Exception as e:
+            logging.error(f"Error encoding audio: {e}")
+            return np.zeros((1, self.embedding_dim))
 
 class UnifiedEmbeddingSpace:
     def __init__(self):

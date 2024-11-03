@@ -26,6 +26,8 @@ class Discord:
     def launch(self):
         """Launch Discord web application"""
         try:
+            logging.info("Launching Discord...")
+            
             # Navigate to Discord
             self.browser.navigate(self.discord_url)
             
@@ -33,6 +35,23 @@ class Discord:
             if not self.browser.wait_until_loaded():
                 raise TimeoutException("Discord page failed to load")
                 
+            # Wait for either login screen or main Discord interface
+            try:
+                # Check for login screen elements
+                login_element = self.browser.find_element("[class*='loginScreen-']", timeout=5)
+                if login_element:
+                    logging.info("Discord login screen detected")
+                    return True
+            except TimeoutException:
+                # Check for main Discord interface elements
+                try:
+                    main_element = self.browser.find_element("[class*='app-']", timeout=5)
+                    if main_element:
+                        logging.info("Discord main interface detected")
+                        return True
+                except TimeoutException:
+                    raise Exception("Could not detect Discord interface elements")
+            
             logging.info("Discord launched successfully")
             return True
             

@@ -22,9 +22,9 @@ class VisionAgent(BaseAgent):
             path,
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
-            use_flash_attn=True,
+            use_flash_attn=False,
             trust_remote_code=True
-        ).eval().cuda()
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True, use_fast=False)
         
         # Lazy load YOLO only when needed for precise coordinate detection
@@ -187,5 +187,111 @@ class VisionAgent(BaseAgent):
                 
         # Weight by confidence
         return base_score * element['confidence']
+
+    def perceive_scene(self, image, include_details=True):
+        """
+        Perceives and analyzes the current scene using InternVL2.
+        
+        Args:
+            image: Input image (path, PIL Image, or numpy array)
+            include_details: Whether to include detailed analysis
+        
+        Returns:
+            dict: Scene perception results including:
+                - description: General scene description
+                - objects: List of detected objects
+                - spatial_relations: Spatial relationships between objects
+                - attributes: Scene attributes (colors, lighting, etc)
+        """
+        try:
+            # Process image if needed
+            processed_image = self.process_image(image)
+            
+            # Get basic scene understanding
+            scene_description = self.understand_scene(processed_image)
+            
+            if not include_details:
+                return {'description': scene_description}
+                
+            # Get detailed object detection
+            results = self.yolo_model(processed_image)
+            
+            # Extract detected objects
+            objects = []
+            for result in results[0].boxes.data:
+                x1, y1, x2, y2, conf, class_id = result
+                objects.append({
+                    'type': self.yolo_model.names[int(class_id)],
+                    'confidence': float(conf),
+                    'bbox': (int(x1), int(y1), int(x2), int(y2))
+                })
+                
+            # Analyze spatial relationships
+            spatial_relations = self._analyze_spatial_relations(objects)
+            
+            # Extract scene attributes
+            attributes = self._extract_scene_attributes(processed_image)
+            
+            return {
+                'description': scene_description,
+                'objects': objects,
+                'spatial_relations': spatial_relations,
+                'attributes': attributes
+            }
+            
+        except Exception as e:
+            logging.error(f"Error in scene perception: {e}")
+            return {'error': str(e)}
+            
+    def _analyze_spatial_relations(self, objects):
+        """Analyzes spatial relationships between detected objects"""
+        relations = []
+        for i, obj1 in enumerate(objects):
+            for obj2 in objects[i+1:]:
+                relation = self._get_spatial_relation(obj1['bbox'], obj2['bbox'])
+                relations.append({
+                    'object1': obj1['type'],
+                    'object2': obj2['type'],
+                    'relation': relation
+                })
+        return relations
+        
+    def _get_spatial_relation(self, bbox1, bbox2):
+        """Determines spatial relation between two bounding boxes"""
+        x1_center = (bbox1[0] + bbox1[2]) / 2
+        y1_center = (bbox1[1] + bbox1[3]) / 2
+        x2_center = (bbox2[0] + bbox2[2]) / 2
+        y2_center = (bbox2[1] + bbox2[3]) / 2
+        
+        dx = x2_center - x1_center
+        dy = y2_center - y1_center
+        
+        if abs(dx) > abs(dy):
+            return 'right of' if dx > 0 else 'left of'
+        else:
+            return 'below' if dy > 0 else 'above'
+            
+    def _extract_scene_attributes(self, image):
+        """Extracts visual attributes from the scene"""
+        # Convert to numpy array if needed
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+            
+        # Calculate basic image statistics
+        brightness = np.mean(image)
+        contrast = np.std(image)
+        
+        # Dominant colors
+        pixels = image.reshape(-1, 3)
+        from sklearn.cluster import KMeans
+        kmeans = KMeans(n_clusters=5, n_init=10)
+        kmeans.fit(pixels)
+        colors = kmeans.cluster_centers_.astype(int)
+        
+        return {
+            'brightness': float(brightness),
+            'contrast': float(contrast),
+            'dominant_colors': colors.tolist()
+        }
 
 

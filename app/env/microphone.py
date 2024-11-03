@@ -3,6 +3,7 @@ from app.env.audio import Audio
 import asyncio
 import websockets
 import time
+import pyaudio
 
 class Microphone:
     def __init__(self):
@@ -11,10 +12,18 @@ class Microphone:
         self.audio_callback = None
         self.stream = None
         self.registered_voice = None
+        self.pyaudio = pyaudio.PyAudio()
         
     def initialize(self):
         """Initialize microphone system"""
         self.active = True
+        # Initialize audio output stream
+        self.stream = self.pyaudio.open(
+            format=pyaudio.paFloat32,
+            channels=1,
+            rate=44100,
+            output=True
+        )
         
     def connect_application(self, app_name):
         """Connect an application to receive audio"""
@@ -27,18 +36,14 @@ class Microphone:
         return None
 
     def receive_audio(self, audio_data):
-        """Receive audio data and route to connected applications"""
-        if not self.active:
+        """Receive audio data chunks and play them through the system"""
+        if not self.active or not self.stream:
             return
             
-        for app_name, app_info in self.connected_apps.items():
-            if app_info['active']:
-                try:
-                    # Route audio to connected application
-                    if hasattr(app_name, 'receive_audio'):
-                        app_name.receive_audio(audio_data)
-                except Exception as e:
-                    logging.error(f"Error routing audio to {app_name}: {e}")
+        try:
+            self.stream.write(audio_data)
+        except Exception as e:
+            logging.error(f"Error playing audio: {e}")
 
     def start_sending_audio(self):
         """Start sending audio stream"""
@@ -51,3 +56,11 @@ class Microphone:
         """Register a voice instance to handle speech output"""
         self.registered_voice = voice
         logging.info("Voice registered with microphone")
+
+    def __del__(self):
+        """Cleanup audio resources"""
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
+        if self.pyaudio:
+            self.pyaudio.terminate()

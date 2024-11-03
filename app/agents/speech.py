@@ -16,4 +16,6 @@ class SpeechAgent(BaseAgent):
             input=input,
             voice="alloy",
         )
-        return response.stream_to_file(self.speech_file_path)
+        # Save the file and return the path
+        response.stream_to_file(self.speech_file_path)
+        return self.speech_file_path

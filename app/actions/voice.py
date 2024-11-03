@@ -4,6 +4,9 @@ The interface that Bob uses to interact with the computer.
 
 import logging
 from app.agents.speech import SpeechAgent
+import wave
+import pyaudio
+from pathlib import Path
 
 class Voice:
     def __init__(self, computer_microphone):
@@ -32,16 +35,27 @@ class Voice:
 
     def start_speaking(self, message: str):
         """
-        Starts the speaking process by sending audio data to the Microphone.
+        Starts the speaking process by streaming audio data to the Microphone.
         """
-        # Convert the message to audio data
-        audio_data = self.text_to_speech(message)
-        # Send directly to microphone instead of using callback
-        self.microphone.receive_audio(audio_data)
-        logging.debug(f"Audio data sent to Microphone: {message}")
+        # Convert the message to audio and get the file path
+        audio_file_path = self.text_to_speech(message)
+        
+        # Stream the audio file to the microphone
+        chunk_size = 1024
+        
+        try:
+            with wave.open(str(audio_file_path), 'rb') as audio_file:
+                audio_data = audio_file.readframes(chunk_size)
+                while audio_data:
+                    self.microphone.receive_audio(audio_data)
+                    audio_data = audio_file.readframes(chunk_size)
+                    
+            logging.debug(f"Audio streamed to Microphone: {message}")
+        except Exception as e:
+            logging.error(f"Error streaming audio: {e}")
 
     def text_to_speech(self, text: str):
         """
-        Converts text to audio data.
+        Converts text to audio data and returns the path to the audio file.
         """
         return self.speech_agent.complete_task(text)

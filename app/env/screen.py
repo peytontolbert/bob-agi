@@ -5,11 +5,12 @@ from PIL import Image, ImageTk
 import numpy as np
 import time
 import cv2
+import threading
 
 class Screen:
     def __init__(self):
-        self.width = 1920
-        self.height = 1080
+        self.width = 800  # Match browser viewport
+        self.height = 600  # Match browser viewport
         self.current_state = None
         self.ui_elements = []
         self.window = None
@@ -17,8 +18,12 @@ class Screen:
         self.current_frame = None
         self.mouse_position = (0, 0)
         self.is_container = os.getenv("IS_CONTAINER", "False") == "True"
-        self.resolution = (800, 600)  # Default resolution
-        self.frame_buffer = []  # Store screen frames for Bob's vision
+        self.resolution = (800, 600)  # Match browser viewport
+        self.frame_buffer = []
+        self.frame_lock = threading.Lock()  # Add thread safety
+        self.last_frame_time = 0
+        self.frame_count = 0
+        self.fps = 0
 
     def initialize(self):
         """
@@ -65,21 +70,66 @@ class Screen:
         Args:
             frame: numpy array or PIL Image representing the screen content
         """
-        self.current_frame = frame
-        self.frame_buffer.append(frame)
-        if len(self.frame_buffer) > 10:  # Keep last 10 frames
+        try:
+            with self.frame_lock:
+                current_time = time.time()
+                
+                # Calculate FPS
+                if current_time - self.last_frame_time >= 1.0:
+                    self.fps = self.frame_count
+                    self.frame_count = 0
+                    self.last_frame_time = current_time
+                self.frame_count += 1
+                
+                # Validate and convert frame if needed
+                if frame is None:
+                    logging.warning("Received None frame")
+                    return
+                    
+                if isinstance(frame, np.ndarray):
+                    frame = self._process_numpy_frame(frame)
+                elif not isinstance(frame, Image.Image):
+                    raise ValueError(f"Unsupported frame type: {type(frame)}")
+
+                # Ensure correct size
+                if frame.size != (self.width, self.height):
+                    frame = frame.resize((self.width, self.height), Image.Resampling.LANCZOS)
+
+                self.current_frame = frame
+                
+                # Update frame buffer
+                self._update_frame_buffer(frame)
+                    
+                if not self.is_container and self.canvas:
+                    # Convert to PhotoImage and display
+                    photo = ImageTk.PhotoImage(frame)
+                    self.canvas.delete("all")  # Clear previous frame
+                    self.canvas.create_image(0, 0, image=photo, anchor='nw')
+                    self.canvas.image = photo  # Keep reference
+
+        except Exception as e:
+            logging.error(f"Error updating frame: {e}", exc_info=True)
+
+    def _process_numpy_frame(self, frame):
+        """Process numpy array frames to correct format"""
+        if len(frame.shape) == 2:  # Grayscale
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+        elif frame.shape[2] == 4:  # RGBA
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+        elif frame.shape[2] == 3 and frame.dtype == np.uint8:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return Image.fromarray(frame)
+
+    def _update_frame_buffer(self, frame):
+        """Update frame buffer with timestamp and maintain size"""
+        self.frame_buffer.append({
+            'frame': frame,
+            'timestamp': time.time()
+        })
+        
+        # Keep last 3 seconds of frames (assuming 30 FPS)
+        while len(self.frame_buffer) > 90:
             self.frame_buffer.pop(0)
-            
-        if not self.is_container:
-            # Convert frame to PhotoImage and display
-            if isinstance(frame, np.ndarray):
-                image = Image.fromarray(frame)
-            else:
-                image = frame
-            photo = ImageTk.PhotoImage(image)
-            self.canvas.create_image(0, 0, image=photo, anchor='nw')
-            self.canvas.image = photo  # Keep reference
-            self.window.update()
 
     def get_current_frame(self):
         """

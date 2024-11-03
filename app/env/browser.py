@@ -11,6 +11,7 @@ import io
 import tkinter as tk
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException, WebDriverException
+import time
 
 class Browser:
     def __init__(self, audio: Audio = None, microphone: Microphone = None):
@@ -90,22 +91,30 @@ class Browser:
             while self.is_capturing:
                 try:
                     if not self.webdriver:
+                        logging.error("WebDriver not available")
                         break
                         
+                    # Capture screenshot
                     screenshot = self.webdriver.get_screenshot_as_png()
                     image = Image.open(io.BytesIO(screenshot))
                     
                     if self.screen:
-                        # Use root.after to schedule screen updates
+                        # Update screen with new frame
                         self.root.after(0, lambda: self.screen.update_frame(image))
+                    else:
+                        logging.warning("Screen not set, cannot update frame")
                     
-                    threading.Event().wait(self.update_interval / 1000)
+                    # Control capture rate
+                    time.sleep(0.1)  # 10 FPS
+                    
                 except Exception as e:
-                    logging.error(f"Error capturing browser screen: {e}")
-                    break
-
-        capture_thread = threading.Thread(target=capture_loop, daemon=True)
-        capture_thread.start()
+                    logging.error(f"Error in screen capture loop: {e}")
+                    time.sleep(1)  # Wait before retrying on error
+                    
+        # Start capture thread
+        self.capture_thread = threading.Thread(target=capture_loop, daemon=True)
+        self.capture_thread.start()
+        logging.info("Screen capture thread started")
 
     def set_screen(self, screen):
         """Sets the screen instance for displaying browser content"""

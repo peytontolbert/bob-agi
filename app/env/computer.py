@@ -25,11 +25,14 @@ class Computer:
 
         self.apps = {
             "browser": Browser(audio=self.audio, microphone=self.microphone),
+            "discord": None  # Will be initialized after browser
         }
         # Set screen reference for browser
         self.apps["browser"].set_screen(self.screen)
         
-        self.discord = Discord(browser=self.apps["browser"])
+        # Initialize Discord after browser setup
+        self.discord = None
+        
         # Start sending audio in a separate thread
         audio_stream_thread = threading.Thread(target=self.microphone.start_sending_audio, daemon=True)
         audio_stream_thread.start()
@@ -50,20 +53,28 @@ class Computer:
             
             # Launch browser in container
             logging.info("Launching browser...")
-            self.launch_app("browser")
+            if not self.launch_app("browser"):
+                raise Exception("Failed to launch browser")
             
             # Wait for browser to be ready
             if not self.apps["browser"].webdriver:
                 raise Exception("Browser WebDriver not initialized")
                 
+            # Initialize Discord after browser is ready
+            logging.info("Initializing Discord...")
+            self.discord = Discord(browser=self.apps["browser"])
+            self.apps["discord"] = self.discord
+            
             # Launch Discord
-            logging.info("Launching Discord...")
             if not self.discord.launch():
-                raise Exception("Failed to launch Discord")
-                
+                logging.error("Failed to launch Discord")
+            
             # Start input devices
             self.mouse.start()
             self.keyboard.start()
+            
+            # Initialize frame buffer for eyesight
+            self.screen.frame_buffer = []
             
             logging.info("Computer environment started successfully")
             
