@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from app.memory.knowledge_system import KnowledgeSystem
 from app.agents.text import TextAgent
+import numpy as np
 
 class InternalMonologue:
     def __init__(self, knowledge_system: KnowledgeSystem):
@@ -132,13 +133,33 @@ class InternalMonologue:
     def _analyze_sentiment(self, text: str) -> Dict[str, float]:
         """
         Analyzes the sentiment of text to extract emotional dimensions.
+        
+        Args:
+            text: The thought content to analyze
+            
+        Returns:
+            Dictionary containing valence, arousal, and dominance scores
         """
-        # Implement sentiment analysis logic
-        # For now, return neutral values
+        # Simple rule-based sentiment analysis
+        positive_words = {'happy', 'excited', 'good', 'great', 'confident', 'successful'}
+        negative_words = {'sad', 'anxious', 'bad', 'worried', 'frustrated', 'failed'}
+        high_arousal_words = {'excited', 'anxious', 'urgent', 'alert', 'stressed'}
+        dominance_words = {'must', 'will', 'definitely', 'certainly', 'decide', 'control'}
+        
+        words = text.lower().split()
+        
+        # Calculate emotional dimensions
+        valence = (sum(word in positive_words for word in words) -
+                  sum(word in negative_words for word in words)) / max(len(words), 1)
+        
+        arousal = sum(word in high_arousal_words for word in words) / max(len(words), 1)
+        
+        dominance = sum(word in dominance_words for word in words) / max(len(words), 1)
+        
         return {
-            "valence": 0.0,
-            "arousal": 0.0,
-            "dominance": 0.5
+            "valence": max(min(valence, 1.0), -1.0),
+            "arousal": min(arousal * 2, 1.0),
+            "dominance": min(0.5 + dominance, 1.0)
         }
 
     def _adjust_value(self, current: float, target: float, weight: float) -> float:
@@ -215,10 +236,34 @@ class InternalMonologue:
     def _identify_focus_areas(self, text: str) -> List[str]:
         """
         Identifies main focus areas in the thought.
+        
+        Args:
+            text: The thought content to analyze
+            
+        Returns:
+            List of identified focus areas
         """
-        # Implement focus area identification logic
-        # For now, return placeholder
-        return ["general"]
+        focus_areas = []
+        
+        # Define focus area keywords
+        focus_keywords = {
+            'task_execution': {'doing', 'working', 'executing', 'performing'},
+            'problem_solving': {'solve', 'figure out', 'understand', 'analyze'},
+            'learning': {'learn', 'study', 'practice', 'improve'},
+            'planning': {'plan', 'prepare', 'organize', 'schedule'},
+            'emotional': {'feel', 'emotion', 'mood', 'stress'},
+            'self_reflection': {'think', 'reflect', 'consider', 'wonder'},
+            'interaction': {'communicate', 'respond', 'interact', 'help'}
+        }
+        
+        text_lower = text.lower()
+        
+        # Check for each focus area
+        for area, keywords in focus_keywords.items():
+            if any(keyword in text_lower for keyword in keywords):
+                focus_areas.append(area)
+        
+        return focus_areas if focus_areas else ['general']
 
     def _generate_fallback_thought(self) -> Dict:
         """
@@ -250,8 +295,84 @@ class InternalMonologue:
     def _analyze_dominant_themes(self) -> List[str]:
         """
         Analyzes recent thoughts for dominant themes.
+        
+        Returns:
+            List of dominant themes identified in recent thoughts
         """
-        # Implement theme analysis logic
-        # For now, return placeholder
-        return ["task_focus", "self_reflection"]
+        if not self.inner_voice_history:
+            return ["no_recent_activity"]
+            
+        # Get focus areas from recent thoughts
+        recent_focus_areas = []
+        for thought in self.inner_voice_history[-10:]:
+            recent_focus_areas.extend(thought.get('metadata', {}).get('focus_areas', []))
+            
+        # Count theme frequencies
+        theme_counts = {}
+        for area in recent_focus_areas:
+            theme_counts[area] = theme_counts.get(area, 0) + 1
+            
+        # Get top themes (those appearing in at least 20% of recent thoughts)
+        threshold = len(self.inner_voice_history[-10:]) * 0.2
+        dominant_themes = [theme for theme, count in theme_counts.items() 
+                         if count >= threshold]
+        
+        return dominant_themes if dominant_themes else ["varied_focus"]
+
+    def clear_history(self, keep_last: int = 100) -> None:
+        """
+        Clears old history while keeping recent entries.
+        
+        Args:
+            keep_last: Number of most recent entries to keep
+        """
+        if len(self.inner_voice_history) > keep_last:
+            self.inner_voice_history = self.inner_voice_history[-keep_last:]
+            logging.info(f"Cleared internal monologue history, kept last {keep_last} entries")
+
+    def get_thought_statistics(self) -> Dict:
+        """
+        Generates statistics about thought patterns.
+        
+        Returns:
+            Dictionary containing thought pattern statistics
+        """
+        if not self.inner_voice_history:
+            return {"status": "no_history"}
+            
+        recent_thoughts = self.inner_voice_history[-50:]
+        
+        return {
+            "total_thoughts": len(self.inner_voice_history),
+            "average_complexity": np.mean([t['metadata']['complexity'] 
+                                         for t in recent_thoughts]),
+            "mood_distribution": self._calculate_mood_distribution(recent_thoughts),
+            "focus_area_distribution": self._calculate_focus_distribution(recent_thoughts),
+            "average_thought_length": np.mean([t['metadata']['length'] 
+                                             for t in recent_thoughts])
+        }
+
+    def _calculate_mood_distribution(self, thoughts: List[Dict]) -> Dict[str, float]:
+        """
+        Calculates the distribution of moods in recent thoughts.
+        """
+        mood_counts = {}
+        for thought in thoughts:
+            mood = thought['mood']
+            mood_counts[mood] = mood_counts.get(mood, 0) + 1
+            
+        total = len(thoughts)
+        return {mood: count/total for mood, count in mood_counts.items()}
+
+    def _calculate_focus_distribution(self, thoughts: List[Dict]) -> Dict[str, float]:
+        """
+        Calculates the distribution of focus areas in recent thoughts.
+        """
+        focus_counts = {}
+        for thought in thoughts:
+            for focus in thought['metadata'].get('focus_areas', ['general']):
+                focus_counts[focus] = focus_counts.get(focus, 0) + 1
+                
+        total = sum(focus_counts.values())
+        return {focus: count/total for focus, count in focus_counts.items()}
 

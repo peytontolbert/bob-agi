@@ -19,61 +19,73 @@ from app.embeddings.embeddings import UnifiedEmbeddingSpace
 
 class Bob:
     def __init__(self, computer):
-        # Initialize core systems
-        self.knowledge_system = KnowledgeSystem()
-        self.hearing = Hearing(computer.audio)
-        self.voice = Voice(computer.microphone)
-        self.eyes = Eyesight(computer.screen)
-        self.hands = Hands(computer.mouse, computer.keyboard)
-        self.thoughts = Thinking(self.knowledge_system)
-        
-        # Initialize AI agents
-        self.text_agent = TextAgent()
-        self.vision_agent = VisionAgent()
-        self.speech_agent = SpeechAgent()
+        try:
+            # Initialize core systems
+            self.knowledge_system = KnowledgeSystem()
+            self.hearing = Hearing(computer.audio)
+            self.voice = Voice(computer.microphone)
+            self.eyes = Eyesight(computer.screen)
+            
+            # Initialize hands with error handling
+            try:
+                self.hands = Hands(computer.mouse, computer.keyboard)
+            except Exception as e:
+                logging.error(f"Error initializing hands: {e}")
+                self.hands = None
+                
+            self.thoughts = Thinking(self.knowledge_system)
+            
+            # Initialize AI agents
+            self.text_agent = TextAgent()
+            self.vision_agent = VisionAgent()
+            self.speech_agent = SpeechAgent()
 
-        # Time windows and processing rates
-        self.QUEUE_TIME_WINDOW = 10  # 10 seconds window
-        self.VISION_FPS = 5  # 5 frames per second
-        self.AUDIO_CHUNK_SIZE = 0.5  # 500ms audio chunks
-        
-        # Initialize time-based queues
-        self.audio_buffer = deque(maxlen=int(self.QUEUE_TIME_WINDOW / self.AUDIO_CHUNK_SIZE))
-        self.vision_buffer = deque(maxlen=self.QUEUE_TIME_WINDOW * self.VISION_FPS)
-        self.thought_buffer = deque(maxlen=50)
-        
-        # Action state tracking
-        self.current_action = None
-        self.action_start_time = None
-        self.last_visual_update = 0
-        
-        # Initialize interaction context
-        self.interaction_context = {
-            'visual_memory': [],  # Recent visual observations
-            'audio_context': [],  # Recent audio context
-            'active_elements': [], # Currently visible UI elements
-            'last_action': None,  # Last performed action
-            'current_goal': None  # Current objective
-        }
+            # Time windows and processing rates
+            self.QUEUE_TIME_WINDOW = 10  # 10 seconds window
+            self.VISION_FPS = 5  # 5 frames per second
+            self.AUDIO_CHUNK_SIZE = 0.5  # 500ms audio chunks
+            
+            # Initialize time-based queues
+            self.audio_buffer = deque(maxlen=int(self.QUEUE_TIME_WINDOW / self.AUDIO_CHUNK_SIZE))
+            self.vision_buffer = deque(maxlen=self.QUEUE_TIME_WINDOW * self.VISION_FPS)
+            self.thought_buffer = deque(maxlen=50)
+            
+            # Action state tracking
+            self.current_action = None
+            self.action_start_time = None
+            self.last_visual_update = 0
+            
+            # Initialize interaction context
+            self.interaction_context = {
+                'visual_memory': [],  # Recent visual observations
+                'audio_context': [],  # Recent audio context
+                'active_elements': [], # Currently visible UI elements
+                'last_action': None,  # Last performed action
+                'current_goal': None  # Current objective
+            }
 
-        # Add thought processing parameters
-        self.THOUGHT_INTEGRATION_WINDOW = 30  # Consider thoughts from last 30 seconds
-        self.MIN_THOUGHT_CONFIDENCE = 0.5  # Minimum confidence to act on thoughts
+            # Add thought processing parameters
+            self.THOUGHT_INTEGRATION_WINDOW = 30  # Consider thoughts from last 30 seconds
+            self.MIN_THOUGHT_CONFIDENCE = 0.5  # Minimum confidence to act on thoughts
 
-        # Add logging configuration
-        logging.basicConfig(level=logging.DEBUG)
-        self.logger = logging.getLogger(__name__)
-        
-        # Initialize state tracking
-        self.last_process_time = time()
-        self.process_interval = 0.1  # 100ms processing interval
+            # Add logging configuration
+            logging.basicConfig(level=logging.DEBUG)
+            self.logger = logging.getLogger(__name__)
+            
+            # Initialize state tracking
+            self.last_process_time = time()
+            self.process_interval = 0.1  # 100ms processing interval
 
-        # Add embedding space initialization
-        self.embedding_space = UnifiedEmbeddingSpace()
+            # Add embedding space initialization
+            self.embedding_space = UnifiedEmbeddingSpace()
 
-        # Add context tracking
-        self.context_history = deque(maxlen=50)  # Track recent context
-        self.last_scene_understanding = None
+            # Add context tracking
+            self.context_history = deque(maxlen=50)  # Track recent context
+            self.last_scene_understanding = None
+
+        except Exception as e:
+            logging.error(f"Error initializing Bob: {e}")
+            raise
 
     def process_environment(self, env):
         """
@@ -90,62 +102,102 @@ class Bob:
             'embeddings': {}
         }
         
-        # Create unified embeddings for all inputs
-        embeddings = self.embedding_space.embed_environmental_input(
-            visual_input=env.get('visual', [])[-1] if env.get('visual') else None,
-            audio_input=env.get('audio'),
-            system_state=env.get('system'),
-            text_input=str(self.interaction_context.get('current_goal'))
-        )
-        processed_data['embeddings'] = embeddings
-
-        # Get current thoughts for context
-        current_thoughts = self.thoughts.current_thoughts()
-        thought_context = {
-            'thought_focus': current_thoughts[0]['content'] if current_thoughts else None,
-            'current_goal': self.interaction_context.get('current_goal'),
-            'last_action': self.interaction_context.get('last_action')
-        }
-        
-        # Process visual input with context-aware scene understanding
-        if env.get('visual'):
-            visual_data = self._process_visual_input(
-                env['visual'][-1], 
-                thought_context
+        try:
+            # Create unified embeddings for all inputs
+            embeddings = self.embedding_space.embed_environmental_input(
+                visual_input=env.get('visual', [])[-1] if env.get('visual') else None,
+                audio_input=env.get('audio'),
+                system_state=env.get('system'),
+                text_input=str(self.interaction_context.get('current_goal'))
             )
-            processed_data['visual'] = visual_data
-            
-            # Update interaction context
-            self.interaction_context['visual_memory'].append(visual_data)
-            if len(self.interaction_context['visual_memory']) > 10:
-                self.interaction_context['visual_memory'].pop(0)
+            processed_data['embeddings'] = embeddings
 
-        # Process audio input
-        if env.get('audio'):
-            audio_text = self.hearing.get_transcription()
-            if audio_text:
-                # Process speech commands
-                command_response = self.text_agent.complete_task(
-                    f"Extract action commands from: {audio_text}"
+            # Query knowledge system with unified embedding
+            if embeddings.get('unified') is not None:
+                relevant_knowledge = self.knowledge_system.query_by_embedding(
+                    embeddings['unified'],
+                    k=5,  # Get top 5 relevant entries
+                    threshold=0.6  # Minimum similarity threshold
                 )
                 
-                processed_data['audio'] = {
-                    'transcription': audio_text,
-                    'commands': command_response
-                }
+                # Use relevant knowledge to enhance context
+                for entry in relevant_knowledge:
+                    if entry['type'] == 'experience':
+                        # Add relevant past experiences
+                        if 'past_experiences' not in processed_data['context']:
+                            processed_data['context']['past_experiences'] = []
+                        processed_data['context']['past_experiences'].append(entry)
+                        
+                    elif entry['type'] == 'rule':
+                        # Add relevant behavioral rules
+                        if 'applicable_rules' not in processed_data['context']:
+                            processed_data['context']['applicable_rules'] = []
+                        processed_data['context']['applicable_rules'].append(entry)
 
-        # Add thought processing
-        if current_thoughts:
-            thought_analysis = self._process_thoughts(current_thoughts)
-            processed_data['thoughts'] = thought_analysis
+            # Get current thoughts for context
+            current_thoughts = self.thoughts.current_thoughts()
+            thought_context = {
+                'thought_focus': current_thoughts[0]['content'] if current_thoughts else None,
+                'current_goal': self.interaction_context.get('current_goal'),
+                'last_action': self.interaction_context.get('last_action')
+            }
             
-        # Integrate all modalities with embeddings
-        processed_data['context'] = self._integrate_modalities(processed_data)
-        
-        # Update context history
-        self.context_history.append(processed_data['context'])
-        
-        return processed_data
+            # Process visual input with context-aware scene understanding
+            if env.get('visual'):
+                visual_data = self._process_visual_input(
+                    env['visual'][-1], 
+                    thought_context
+                )
+                processed_data['visual'] = visual_data
+                
+                # Update interaction context
+                self.interaction_context['visual_memory'].append(visual_data)
+                if len(self.interaction_context['visual_memory']) > 10:
+                    self.interaction_context['visual_memory'].pop(0)
+
+            # Process audio input
+            if env.get('audio'):
+                audio_text = self.hearing.get_transcription()
+                if audio_text:
+                    # Process speech as part of overall cognitive understanding
+                    audio_understanding = self.text_agent.complete_task(
+                        f"""
+                        Given this audio input: {audio_text}
+                        And current cognitive context:
+                        - Goal: {self.interaction_context.get('current_goal')}
+                        - Recent thoughts: {[t['content'] for t in current_thoughts]}
+                        
+                        Provide a cognitive understanding of this audio input's meaning and relevance.
+                        """
+                    )
+                    
+                    processed_data['audio'] = {
+                        'transcription': audio_text,
+                        'understanding': audio_understanding
+                    }
+
+            # Add thought processing
+            if current_thoughts:
+                thought_analysis = self._process_thoughts(current_thoughts)
+                processed_data['thoughts'] = thought_analysis
+                
+            # Enhanced context integration
+            processed_data['context'] = self._integrate_modalities(processed_data)
+            
+            # Update context history with embedding information
+            context_entry = {
+                'timestamp': current_time,
+                'unified_embedding': embeddings.get('unified'),
+                'context': processed_data['context'],
+                'relevance_scores': [entry['final_score'] for entry in relevant_knowledge] if relevant_knowledge else []
+            }
+            self.context_history.append(context_entry)
+            
+            return processed_data
+            
+        except Exception as e:
+            self.logger.error(f"Error in process_environment: {e}")
+            return processed_data
 
     def _process_visual_input(self, visual_input, thought_context):
         """
@@ -279,70 +331,97 @@ class Bob:
 
     def decide_action(self, processed_env):
         """
-        Enhanced action decision system incorporating thoughts.
+        Cognitive action decision system based on goals and understanding.
         """
         context = processed_env['context']
         thoughts = processed_env['thoughts']
+        current_goal = self.interaction_context.get('current_goal')
         
-        # Check for high-priority thoughts that might override other actions
-        if thoughts.get('priority_thought'):
-            priority = thoughts['priority_thought'].get('metadata', {}).get('priority', 0)
-            if priority > self.MIN_THOUGHT_CONFIDENCE:
-                return self._handle_thought_driven_action(thoughts['priority_thought'])
-        
-        # Continue with existing decision logic...
-        if context['detected_commands']:
-            return self._handle_command_action(context['detected_commands'])
-        
-        if context['visual_elements']:
-            return self._handle_ui_interaction(context)
-        
-        return self._generate_verbal_response(context)
-
-    def _handle_command_action(self, commands):
-        """
-        Processes explicit commands into actions.
-        """
-        # Convert command to action structure
-        action = {
-            'type': 'command',
-            'command': commands[0],  # Take first command for now
-            'timestamp': time()
+        # Integrate all cognitive inputs
+        cognitive_state = {
+            'visual_understanding': context['scene_understanding'],
+            'audio_understanding': processed_env['audio'].get('understanding'),
+            'thought_focus': thoughts.get('focus'),
+            'cognitive_state': thoughts.get('cognitive_state'),
+            'current_goal': current_goal,
+            'integrated_understanding': context['integrated_understanding']
         }
-        return action
-
-    def _handle_ui_interaction(self, context):
-        """
-        Determines appropriate UI interaction based on visual context.
-        """
-        elements = context['visual_elements']
-        understanding = context['integrated_understanding']
         
-        # Find most relevant UI element for current context
+        # Generate action based on cognitive state
+        action_decision = self.text_agent.complete_task(
+            f"""
+            Given Bob's current cognitive state:
+            Goal: {cognitive_state['current_goal']}
+            Visual Scene: {cognitive_state['visual_understanding']}
+            Audio Understanding: {cognitive_state['audio_understanding']}
+            Current Thoughts: {cognitive_state['thought_focus']}
+            Emotional State: {cognitive_state['cognitive_state']}
+            Integrated Understanding: {cognitive_state['integrated_understanding']}
+            
+            Determine the most appropriate action to take toward achieving the current goal.
+            Consider:
+            1. What action would best progress toward the goal?
+            2. Is interaction with the environment needed?
+            3. Should Bob express thoughts or feelings verbally?
+            4. Should Bob wait and continue observing?
+            
+            Return a structured action decision.
+            """
+        )
+        
+        return self._convert_decision_to_action(action_decision, context)
+
+    def _convert_decision_to_action(self, decision, context):
+        """
+        Converts a cognitive decision into an executable action.
+        """
+        try:
+            # Parse the decision into actionable components
+            action_type = self._determine_action_type(decision)
+            
+            if action_type == 'interaction':
+                return self._create_interaction_action(decision, context)
+            elif action_type == 'speech':
+                return self._create_speech_action(decision)
+            elif action_type == 'observation':
+                return None  # Continue observing
+            else:
+                self.logger.warning(f"Unclear action type from decision: {decision}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error converting decision to action: {e}")
+            return None
+
+    def _create_interaction_action(self, decision, context):
+        """
+        Creates an interaction action based on the decision.
+        """
+        # Parse the decision to determine the target element and action
         target_element = None
-        for element in elements:
-            if element['type'] in understanding.lower():
+        action = None
+        for element in context['visual_elements']:
+            if element['type'] in decision.lower():
                 target_element = element
+                action = 'click'  # or other action based on context
                 break
         
         if target_element:
             return {
                 'type': 'interaction',
                 'element': target_element,
-                'action': 'click',  # or other action based on context
+                'action': action,
                 'timestamp': time()
             }
         
         return None
 
-    def _generate_verbal_response(self, context):
+    def _create_speech_action(self, decision):
         """
-        Generates appropriate verbal response when no physical action is needed.
+        Creates a speech action based on the decision.
         """
         prompt = f"""
-        Given the current context:
-        {context['integrated_understanding']}
-        
+        Given this decision: {decision}
         Generate an appropriate verbal response.
         """
         
@@ -353,51 +432,19 @@ class Bob:
             'timestamp': time()
         }
 
-    def _handle_thought_driven_action(self, thought):
+    def _determine_action_type(self, decision):
         """
-        Converts a high-priority thought into an actionable response.
+        Determines the type of action based on the decision.
         """
-        # Analyze thought content for actionable elements
-        action_analysis = self.text_agent.complete_task(
-            f"""
-            Given this thought: {thought['content']}
-            Determine if and how to act on it. Consider:
-            1. Is immediate action needed?
-            2. What type of action would be most appropriate?
-            3. What is the specific target of the action?
-            
-            Return a structured action recommendation.
-            """
-        )
-        
-        # Convert thought into action
-        return {
-            'type': 'thought_driven',
-            'thought': thought['content'],
-            'action': action_analysis,
-            'priority': thought['metadata']['priority'],
-            'timestamp': time()
-        }
-
-    def _assess_cognitive_state(self, thought_emotions):
-        """
-        Analyzes emotional patterns in thoughts to determine cognitive state.
-        """
-        if not thought_emotions:
-            return 'neutral'
-            
-        # Aggregate emotional indicators
-        emotional_states = []
-        for emotion in thought_emotions:
-            if isinstance(emotion, dict):
-                emotional_states.extend(emotion.values())
-            elif emotion:
-                emotional_states.append(emotion)
-        
-        # Determine dominant cognitive state
-        if emotional_states:
-            return max(set(emotional_states), key=emotional_states.count)
-        return 'neutral'
+        if 'interaction' in decision.lower():
+            return 'interaction'
+        elif 'speech' in decision.lower():
+            return 'speech'
+        elif 'observation' in decision.lower():
+            return 'observation'
+        else:
+            self.logger.warning(f"Unclear action type from decision: {decision}")
+            return None
 
     def execute_action(self, action):
         """
@@ -467,6 +514,10 @@ class Bob:
         """
         Main loop that keeps Bob running and processing his environment.
         """
+        if not self.hands:
+            logging.error("Hands system not initialized properly")
+            return
+            
         while True:
             try:
                 current_time = time()
@@ -481,7 +532,7 @@ class Bob:
                     
                     # Decide and execute action
                     action = self.decide_action(processed_env)
-                    if action:
+                    if action and self.hands:  # Check if hands available
                         result = self.execute_action(action)
                         
                         # Add experience to thoughts

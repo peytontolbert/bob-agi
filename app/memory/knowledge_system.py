@@ -487,3 +487,110 @@ class KnowledgeSystem:
             self.entries.append(entry)
             return True
         return False
+
+    def query_by_embedding(self, query_embedding: np.ndarray, k: int = 5, threshold: float = 0.7) -> List[Dict]:
+        """
+        Queries knowledge base using unified embeddings with semantic filtering.
+        
+        Args:
+            query_embedding: Unified embedding vector to search with
+            k: Number of results to return
+            threshold: Minimum similarity threshold (0-1)
+            
+        Returns:
+            List of relevant knowledge entries with similarity scores
+        """
+        try:
+            # Ensure query embedding has correct shape and type
+            query_embedding = np.array([query_embedding]).astype('float32')
+            
+            # Search knowledge base
+            distances, indices = self.knowledge_base.search(query_embedding, k=k*2)  # Get extra results for filtering
+            
+            results = []
+            for i, idx in enumerate(indices[0]):
+                if idx != -1:  # Valid index
+                    similarity = 1.0 - float(distances[0][i])  # Convert distance to similarity
+                    
+                    if similarity >= threshold:
+                        # Get entry metadata
+                        metadata = self.metadata[idx]
+                        
+                        # Calculate contextual relevance
+                        context_score = self._calculate_context_relevance({'metadata': metadata})
+                        
+                        # Combine similarity with context score
+                        final_score = 0.7 * similarity + 0.3 * context_score
+                        
+                        results.append({
+                            'metadata': metadata,
+                            'similarity': similarity,
+                            'context_score': context_score,
+                            'final_score': final_score,
+                            'type': metadata.get('type', 'unknown'),
+                            'timestamp': metadata.get('creation_time', datetime.now())
+                        })
+            
+            # Sort by final score and limit to k results
+            results.sort(key=lambda x: x['final_score'], reverse=True)
+            results = results[:k]
+            
+            # Update access patterns for retrieved entries
+            self._update_access_patterns([r['metadata'] for r in results])
+            
+            return results
+            
+        except Exception as e:
+            logging.error(f"Error querying by embedding: {e}")
+            return []
+
+    def _context_to_vector(self, context: Dict) -> np.ndarray:
+        """
+        Converts context dictionary into unified embedding vector.
+        
+        Args:
+            context: Dictionary containing context information
+            
+        Returns:
+            Embedding vector representation of context
+        """
+        try:
+            # Initialize vector
+            vector = np.zeros(self.dimension, dtype=np.float32)
+            
+            # Extract key context elements
+            app = context.get('application', '')
+            window = context.get('window', '')
+            view = context.get('view', {})
+            
+            # Encode application state (use ranges of vector)
+            app_types = ['browser', 'discord', 'notepad', 'terminal']
+            if app in app_types:
+                idx = app_types.index(app)
+                vector[idx] = 1.0
+                
+            # Encode interaction mode
+            modes = ['mouse', 'keyboard', 'voice']
+            current_mode = context.get('system_state', {}).get('interaction_mode')
+            if current_mode in modes:
+                idx = modes.index(current_mode)
+                vector[len(app_types) + idx] = 1.0
+                
+            # Encode view state
+            if view:
+                # Add view-specific encoding
+                if 'focused_element' in view:
+                    element_types = ['button', 'text', 'link', 'input']
+                    element_type = view['focused_element'].get('type')
+                    if element_type in element_types:
+                        idx = element_types.index(element_type)
+                        vector[len(app_types) + len(modes) + idx] = 1.0
+            
+            # Add temporal aspects
+            vector[-1] = datetime.now().hour / 24.0  # Time of day
+            
+            return vector
+            
+        except Exception as e:
+            logging.error(f"Error converting context to vector: {e}")
+            return np.zeros(self.dimension, dtype=np.float32)

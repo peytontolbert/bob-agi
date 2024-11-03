@@ -20,13 +20,17 @@ class Keyboard:
         self.running = False
         self.thread = threading.Thread(target=self.process_queue, daemon=True)
 
+    def is_running(self):
+        """Check if keyboard thread is running."""
+        return hasattr(self, 'thread') and self.thread.is_alive()
+
     def start(self):
-        """
-        Starts the keyboard input processing.
-        """
-        self.running = True
-        self.thread.start()
-        logging.debug("Keyboard input processing started.")
+        """Start keyboard thread if not already running."""
+        if not self.is_running():
+            self.thread = threading.Thread(target=self.process_queue, daemon=True)
+            self.thread.start()
+        else:
+            logging.debug("Keyboard thread already running")
 
     def stop(self):
         """

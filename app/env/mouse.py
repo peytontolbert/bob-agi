@@ -22,17 +22,17 @@ class Mouse:
         self.current_position = (0, 0)
         self.is_clicking = False
 
+    def is_running(self):
+        """Check if mouse thread is running."""
+        return hasattr(self, 'thread') and self.thread.is_alive()
+
     def start(self):
-        """
-        Starts the mouse action processing.
-        """
-        if not self.thread.is_alive():
-            self.running = True
+        """Start mouse thread if not already running."""
+        if not self.is_running():
             self.thread = threading.Thread(target=self.process_queue, daemon=True)
             self.thread.start()
-            logging.debug("Mouse action processing started.")
         else:
-            logging.warning("Mouse thread is already running")
+            logging.debug("Mouse thread already running")
 
     def stop(self):
         """
