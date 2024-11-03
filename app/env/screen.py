@@ -83,20 +83,28 @@ class Screen:
 
     def get_current_frame(self):
         """
-        Returns the current frame being displayed on screen.
+        Returns the current frame with enhanced error handling.
         
         Returns:
-            PIL.Image or None: The current screen frame as a PIL Image, or None if no frame is available
+            PIL.Image or None: The current screen frame as a PIL Image
         """
         try:
             if self.current_frame is not None:
                 if isinstance(self.current_frame, np.ndarray):
                     return Image.fromarray(self.current_frame)
                 elif isinstance(self.current_frame, Image.Image):
-                    return self.current_frame
-            return None
+                    return self.current_frame.copy()
+                else:
+                    logging.warning(f"Unexpected frame type: {type(self.current_frame)}")
+                    return None
+                    
+            # If no frame exists, create blank frame
+            blank_frame = Image.new('RGB', (self.width, self.height), 'black')
+            logging.debug("Created blank frame due to no current frame")
+            return blank_frame
+            
         except Exception as e:
-            logging.error(f"Error getting current frame: {e}")
+            logging.error(f"Error getting current frame: {e}", exc_info=True)
             return None
 
     def get_frame_buffer(self):
@@ -117,16 +125,19 @@ class Screen:
 
     def capture(self):
         """
-        Captures current screen state with enhanced metadata and quality control.
+        Captures current screen state with enhanced metadata, quality control and error handling.
         
         Returns:
             dict: Screen state including timestamp, resolution, UI elements, and quality metrics
+            None: If capture fails
         """
         try:
+            # First try to get current frame with error handling
             current_frame = self.get_current_frame()
             if current_frame is None:
-                logging.warning("Failed to capture current frame")
-                return None
+                # Try to create a blank frame as fallback
+                current_frame = Image.new('RGB', (self.width, self.height), 'black')
+                logging.warning("Created blank frame as fallback after capture failure")
                 
             # Enhanced screen state with quality metrics
             screen_state = {
@@ -151,13 +162,13 @@ class Screen:
                 })
                 
                 # Maintain buffer size
-                while len(self.frame_buffer) > 100:  # Keep last 100 frames
+                while len(self.frame_buffer) > 100:
                     self.frame_buffer.pop(0)
                     
             return screen_state
             
         except Exception as e:
-            logging.error(f"Error capturing screen state: {e}")
+            logging.error(f"Error capturing screen state: {e}", exc_info=True)
             return None
 
     def _calculate_brightness(self, frame):

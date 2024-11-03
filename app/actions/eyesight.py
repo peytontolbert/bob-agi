@@ -157,17 +157,22 @@ class Eyesight:
 
     def process_screen_buffer(self):
         """
-        Processes new frames from screen's frame buffer.
+        Processes new frames from screen's frame buffer with enhanced error handling.
         """
         try:
             current_buffer = self.screen.get_frame_buffer()
             if not current_buffer:
+                logging.debug("No new frames in buffer to process")
                 return
                 
             # Process any new frames
             for i in range(self.last_processed_frame_index + 1, len(current_buffer)):
                 frame = current_buffer[i]
                 
+                if frame is None:
+                    logging.warning(f"Skipping null frame at index {i}")
+                    continue
+                    
                 # Generate embedding
                 embedding = self.generate_embedding(frame)
                 
@@ -191,29 +196,40 @@ class Eyesight:
             self.last_processed_frame_index = len(current_buffer) - 1
                 
         except Exception as e:
-            logging.error(f"Error processing screen buffer: {e}")
+            logging.error(f"Error processing screen buffer: {e}", exc_info=True)
 
     def capture_screen(self):
         """
-        Captures and processes the current screen state.
+        Captures and processes the current screen state with enhanced error handling.
         Uses high-level scene understanding for thinking.
         """
         try:
-            screenshot = self.screen.get_current_frame()
+            # Get screenshot with retry logic
+            max_retries = 3
+            screenshot = None
+            
+            for attempt in range(max_retries):
+                screenshot = self.screen.get_current_frame()
+                if screenshot is not None:
+                    break
+                logging.warning(f"Screen capture attempt {attempt + 1} failed, retrying...")
+                time.sleep(0.1)
+                    
             if screenshot is None:
-                logging.warning("Failed to capture screen - no frame available")
+                logging.error("All screen capture attempts failed")
                 return None
                 
             # Get current thought context
             context = self._get_thought_context()
             
-            # Use QwenVL for high-level scene understanding
-            perception = self.vision_agent.perceive_scene(screenshot, context)
+            # Use vision agent for scene understanding
+            perception = self.vision_agent.understand_scene(screenshot, context)
             
             screen_state = {
                 'timestamp': time.time(),
                 'perception': perception,
-                'context': context
+                'context': context,
+                'frame': screenshot
             }
             
             return screen_state
