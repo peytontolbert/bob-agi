@@ -29,26 +29,48 @@ class Screen:
         """
         Initializes the simulated screen with improved container support.
         """
-        if not self.is_container:
-            self.window = tk.Tk()
-            self.window.title("Bob's View")
-            self.window.geometry(f"{self.resolution[0]}x{self.resolution[1]}")
-            
-            # Create canvas for drawing
-            self.canvas = tk.Canvas(
-                self.window, 
-                width=self.resolution[0], 
-                height=self.resolution[1]
-            )
-            self.canvas.pack()
-            
-            # Bind mouse movement
-            self.canvas.bind('<Motion>', self.update_mouse_position)
-            
-        logging.debug("Screen initialized in %s mode", 
-                     "container" if self.is_container else "window")
+        try:
+            if not self.is_container:
+                # Create Tk instance in main thread
+                if not hasattr(self, '_tk_ready'):
+                    self.window = tk.Tk()
+                    self.window.title("Bob's View")
+                    self.window.geometry(f"{self.resolution[0]}x{self.resolution[1]}")
+                    
+                    # Create canvas for drawing
+                    self.canvas = tk.Canvas(
+                        self.window, 
+                        width=self.resolution[0], 
+                        height=self.resolution[1]
+                    )
+                    self.canvas.pack()
+                    
+                    # Bind mouse movement
+                    self.canvas.bind('<Motion>', self.update_mouse_position)
+                    
+                    # Mark Tk as initialized
+                    self._tk_ready = True
+                    
+                    # Start Tk event loop in separate thread if not running
+                    if not hasattr(self, '_tk_thread'):
+                        self._tk_thread = threading.Thread(target=self._run_tk_loop, daemon=True)
+                        self._tk_thread.start()
+                
+            logging.debug("Screen initialized in %s mode", 
+                         "container" if self.is_container else "window")
 
-        self.current_state = self.capture()
+            self.current_state = self.capture()
+            
+        except Exception as e:
+            logging.error(f"Error initializing screen: {e}")
+            raise
+
+    def _run_tk_loop(self):
+        """Run Tkinter event loop in separate thread"""
+        try:
+            self.window.mainloop()
+        except Exception as e:
+            logging.error(f"Error in Tk event loop: {e}")
 
     def update_mouse_position(self, event):
         """
@@ -66,6 +88,7 @@ class Screen:
     def update_frame(self, frame):
         """
         Updates the current frame buffer with new screen content.
+        Thread-safe implementation.
         
         Args:
             frame: numpy array or PIL Image representing the screen content
@@ -101,11 +124,12 @@ class Screen:
                 self._update_frame_buffer(frame)
                     
                 if not self.is_container and self.canvas:
-                    # Convert to PhotoImage and display
-                    photo = ImageTk.PhotoImage(frame)
-                    self.canvas.delete("all")  # Clear previous frame
-                    self.canvas.create_image(0, 0, image=photo, anchor='nw')
-                    self.canvas.image = photo  # Keep reference
+                    try:
+                        # Convert to PhotoImage and display using thread-safe method
+                        photo = ImageTk.PhotoImage(frame)
+                        self.canvas.after(0, lambda: self._update_canvas(photo))
+                    except Exception as e:
+                        logging.error(f"Error updating canvas: {e}")
 
         except Exception as e:
             logging.error(f"Error updating frame: {e}", exc_info=True)
@@ -133,24 +157,28 @@ class Screen:
 
     def get_current_frame(self):
         """
-        Returns the current frame with enhanced error handling.
+        Returns the current frame with enhanced error handling and format consistency.
         
         Returns:
-            PIL.Image or None: The current screen frame as a PIL Image
+            PIL.Image or None: The current screen frame as a PIL Image in RGB format
         """
         try:
             if self.current_frame is not None:
+                # Convert numpy array to PIL Image if needed
                 if isinstance(self.current_frame, np.ndarray):
-                    return Image.fromarray(self.current_frame)
+                    if len(self.current_frame.shape) == 2:  # Grayscale
+                        return Image.fromarray(self.current_frame, 'L').convert('RGB')
+                    elif len(self.current_frame.shape) == 3:
+                        if self.current_frame.shape[2] == 4:  # RGBA
+                            return Image.fromarray(self.current_frame, 'RGBA').convert('RGB')
+                        else:  # Assume BGR/RGB
+                            return Image.fromarray(cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB))
                 elif isinstance(self.current_frame, Image.Image):
-                    return self.current_frame.copy()
-                else:
-                    logging.warning(f"Unexpected frame type: {type(self.current_frame)}")
-                    return None
-                    
-            # If no frame exists, create blank frame
+                    return self.current_frame.convert('RGB')  # Ensure RGB mode
+                
+            # If no frame exists, create blank RGB frame
             blank_frame = Image.new('RGB', (self.width, self.height), 'black')
-            logging.debug("Created blank frame due to no current frame")
+            logging.debug("Created blank RGB frame due to no current frame")
             return blank_frame
             
         except Exception as e:
@@ -272,3 +300,30 @@ class Screen:
     def display_elements(self, elements):
         """Update UI elements on screen"""
         self.ui_elements = elements
+
+    def _update_canvas(self, photo):
+        """Thread-safe method to update canvas"""
+        if not self.canvas:
+            return
+        
+        try:
+            # Store reference to photo to prevent garbage collection
+            if not hasattr(self, '_current_photo'):
+                self._current_photo = None
+                
+            self._current_photo = photo  # Keep strong reference
+            
+            def update():
+                try:
+                    if self.canvas.winfo_exists():
+                        self.canvas.delete("all")
+                        self.canvas.create_image(0, 0, image=self._current_photo, anchor='nw')
+                except Exception as e:
+                    logging.error(f"Error in canvas update: {e}")
+                    
+            # Schedule update in main thread
+            if self.window and self.window.winfo_exists():
+                self.window.after(0, update)
+                
+        except Exception as e:
+            logging.error(f"Error preparing canvas update: {e}")

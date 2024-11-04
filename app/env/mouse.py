@@ -21,6 +21,7 @@ class Mouse:
         self.thread = threading.Thread(target=self.process_queue, daemon=True)
         self.current_position = (0, 0)
         self.is_clicking = False
+        self.last_click = None  # Initialize the 'last_click' attribute
 
     def is_running(self):
         """Check if mouse thread is running."""
@@ -29,6 +30,7 @@ class Mouse:
     def start(self):
         """Start mouse thread if not already running."""
         if not self.is_running():
+            self.running = True  # Set running to True
             self.thread = threading.Thread(target=self.process_queue, daemon=True)
             self.thread.start()
         else:
@@ -67,6 +69,10 @@ class Mouse:
         self.action_queue.append(('move', x, y))
         logging.debug(f"Queued mouse movement to ({x}, {y})")
 
+    def move(self, x, y, smooth=True):
+        """Alias for move_to to align with test usage."""
+        self.move_to(x, y, smooth)
+
     def click(self, button='left', double=False):
         """
         Queues a mouse click action.
@@ -83,6 +89,7 @@ class Mouse:
             self.action_queue.append(('click_up', button))
             
         logging.debug(f"Queued mouse {button} button {'double ' if double else ''}click")
+        self.last_click = button  # Record the last clicked button
 
     def process_queue(self):
         """
@@ -107,10 +114,9 @@ class Mouse:
             else:
                 time.sleep(0.01)
 
-    def get_position(self):
-        """
-        Returns current mouse position.
-        """
+    @property
+    def position(self):
+        """Provides access to the current mouse position."""
         return self.current_position
 
     def is_button_pressed(self, button='left'):

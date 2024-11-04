@@ -1,0 +1,37 @@
+defaults:
+  - _self_
+
+# Test configuration
+test:
+  discord:
+    server_id: "999382051935506503"
+    channel_name: "General"
+    timeout: 30
+    
+  browser:
+    default_timeout: 10
+    screenshot_dir: "tests/screenshots"
+    headless: true  # Run browser tests headlessly by default
+
+  vision:
+    confidence_threshold: 0.8
+    max_retries: 3
+    retry_delay: 1.0
+
+  audio:
+    sample_rate: 44100
+    channels: 1
+    chunk_size: 1024
+
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file: "tests/logs/test.log"
+
+# Mock responses for tests
+mocks:
+  discord:
+    login_response: true
+    join_channel_response:
+      success: true
+      channel: "General"

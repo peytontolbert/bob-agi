@@ -69,6 +69,73 @@ Run the main script to start Bob:
 python main.py
 ```
 
+## Testing
+
+To run the tests, use the following command:
+   ```bash
+   python tests/run_tests.py
+```
+### Using pytest directly:
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=app --cov-report=html
+
+# Run specific test categories using markers
+pytest -m unit  # Run unit tests only
+pytest -m integration  # Run integration tests only
+pytest -m "not slow"  # Skip slow tests
+
+# Run specific test files or directories
+pytest tests/unit/  # Run all unit tests
+pytest tests/unit/test_browser.py  # Run specific test file
+
+# Run with different verbosity levels
+pytest -v  # verbose
+pytest -vv  # more verbose
+```
+
+### Using the run_tests.py script:
+```bash
+# Run all tests
+python tests/run_tests.py
+
+# Run specific test categories
+python tests/run_tests.py --markers unit
+python tests/run_tests.py --markers "!slow"  # Skip slow tests
+python tests/run_tests.py --markers "unit" "!slow"  # Run unit tests but skip slow ones
+
+# Run specific path
+python tests/run_tests.py --path tests/unit/test_browser.py
+
+# Increase verbosity
+python tests/run_tests.py -v
+python tests/run_tests.py -vv
+
+# Disable coverage
+python tests/run_tests.py --no-coverage
+```
+
+### Best practices for running tests:
+```bash
+# 1. Run unit tests during development (fast feedback)
+pytest -m unit
+
+# 2. Run with coverage before committing
+pytest --cov=app --cov-report=html
+
+# 3. Run full test suite before pushing
+pytest
+
+# 4. Run specific tests when debugging
+pytest tests/path/to/test.py -vv -s  # -s shows print statements
+
+# 5. Run tests matching a specific name pattern
+pytest -k "test_browser"  # Runs all tests with "test_browser" in the name
+```
+
 Bob will initialize his environment, join the Discord voice channel, and begin interacting based on the defined parameters.
 
 ## Contributing

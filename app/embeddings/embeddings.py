@@ -34,16 +34,51 @@ class TextEncoder(ModalityEncoder):
 class VisionEncoder(ModalityEncoder):
     def __init__(self, model_name: str = "openai/clip-vit-base-patch32"):
         super().__init__()
-        self.model = AutoModel.from_pretrained(model_name)
-        
-    def encode(self, image: Union[Image.Image, np.ndarray]) -> np.ndarray:
-        # Convert image to expected format and get embeddings
-        if isinstance(image, np.ndarray):
-            image = Image.fromarray(image)
-        inputs = self.model.processor(images=image, return_tensors="pt")
-        with torch.no_grad():
-            outputs = self.model.get_image_features(**inputs)
-        return outputs.numpy()
+        try:
+            from transformers import CLIPProcessor, CLIPModel
+            self.model = CLIPModel.from_pretrained(model_name)
+            self.processor = CLIPProcessor.from_pretrained(model_name)
+        except Exception as e:
+            logging.error(f"Error initializing vision encoder: {e}")
+            raise
+
+    def encode(self, image: Union[Image.Image, np.ndarray, Dict]) -> np.ndarray:
+        try:
+            # Handle dictionary input
+            if isinstance(image, dict):
+                if 'frame' in image:
+                    image = image['frame']
+                else:
+                    raise ValueError("Invalid image dictionary format")
+
+            # Convert numpy array to PIL Image if needed
+            if isinstance(image, np.ndarray):
+                if len(image.shape) == 2:  # Grayscale
+                    image = Image.fromarray(image, mode='L').convert('RGB')
+                elif len(image.shape) == 3:
+                    if image.shape[2] == 4:  # RGBA
+                        image = Image.fromarray(image, mode='RGBA').convert('RGB')
+                    else:  # Assume RGB/BGR
+                        image = Image.fromarray(image).convert('RGB')
+                else:
+                    raise ValueError(f"Invalid image shape: {image.shape}")
+            elif isinstance(image, Image.Image):
+                image = image.convert('RGB')  # Ensure RGB mode
+            else:
+                raise ValueError(f"Unsupported image type: {type(image)}")
+
+            # Process image for model
+            inputs = self.processor(images=image, return_tensors="pt")
+            
+            # Get embeddings
+            with torch.no_grad():
+                outputs = self.model.get_image_features(**inputs)
+                
+            return outputs.numpy()
+            
+        except Exception as e:
+            logging.error(f"Error encoding image: {e}")
+            return np.zeros((1, self.embedding_dim))
 
 class AudioEncoder(ModalityEncoder):
     def __init__(self, model_name: str = "facebook/wav2vec2-base-960h"):

@@ -11,24 +11,102 @@ import logging
 from transformers import AutoTokenizer, AutoModel
 import os
 import time
+from collections import defaultdict
+from functools import wraps
+import contextlib
+from typing import Optional, Dict, Any
+from transformers import CLIPProcessor
+
+def timeout(seconds):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            if end_time - start_time > seconds:
+                raise TimeoutError(f"Function {func.__name__} took {end_time - start_time:.2f} seconds, which exceeds the timeout of {seconds} seconds")
+            return result
+        return wrapper
+    return decorator
 
 class VisionAgent(BaseAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Initialize InternVL2 model for visual understanding
-        path = "OpenGVLab/InternVL2-2B"
-        self.model = AutoModel.from_pretrained(
-            path,
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
-            use_flash_attn=False,
-            trust_remote_code=True
-        )
-        self.tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True, use_fast=False)
+        # Performance monitoring
+        self.processing_times = []
+        self.max_processing_times = 1000  # Keep last 1000 measurements
+        self.error_counts = defaultdict(int)
+        self.last_error_reset = time.time()
+        self.error_threshold = 50  # Max errors before requiring intervention
         
-        # Lazy load YOLO only when needed for precise coordinate detection
+        # Initialize models with proper error handling
+        self._initialize_models()
+        
+        # Add YOLO model initialization
         self._yolo_model = None
+        self.ui_classes = {
+            0: "button",
+            1: "text",
+            2: "input",
+            3: "link",
+            4: "image",
+            5: "icon"
+            # Add more UI element classes as needed
+        }
+        
+        # Initialize CLIPProcessor for image processing
+        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+    def _initialize_models(self):
+        """Initialize vision models with fallback options"""
+        try:
+            # Initialize InternVL2 model
+            path = "OpenGVLab/InternVL2-2B"
+            self.model = AutoModel.from_pretrained(
+                path,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True,
+                use_flash_attn=False,
+                trust_remote_code=True
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                path, 
+                trust_remote_code=True, 
+                use_fast=False
+            )
+            
+            # Initialize model states
+            self.model_healthy = True
+            self.last_model_check = time.time()
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize vision models: {e}")
+            self.model_healthy = False
+            raise RuntimeError("Vision system initialization failed")
+
+    def _check_model_health(self):
+        """Periodic health check of vision models"""
+        current_time = time.time()
+        if current_time - self.last_model_check > 3600:  # Check every hour
+            try:
+                # Run test inference
+                test_image = Image.new('RGB', (100, 100), color='red')
+                self.understand_scene(test_image, "Test prompt")
+                
+                # Reset error counts periodically
+                if current_time - self.last_error_reset > 86400:  # Daily reset
+                    self.error_counts.clear()
+                    self.last_error_reset = current_time
+                    
+                self.model_healthy = True
+                
+            except Exception as e:
+                logging.error(f"Model health check failed: {e}")
+                self.model_healthy = False
+                
+            self.last_model_check = current_time
 
     @property 
     def yolo_model(self):
@@ -70,49 +148,151 @@ class VisionAgent(BaseAgent):
             logging.error(f"Error processing image: {str(e)}")
             raise
 
-    def understand_scene(self, image, question=None):
-        """
-        Uses InternVL2 for high-level visual understanding.
-        
-        Args:
-            image: Input image (path, PIL Image, or numpy array)
-            question: Optional specific question about the image
-            
-        Returns:
-            str: Description or answer about the image
-        """
+    def _generate_scene_understanding(self, image: Any, question: Optional[str] = None) -> Dict[str, Any]:
+        """Generate scene understanding response"""
         try:
-            # Process image
-            if isinstance(image, np.ndarray):
-                image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            elif isinstance(image, str):
-                image = Image.open(image).convert('RGB')
-                
+            # Handle dictionary input by extracting the frame
+            if isinstance(image, dict) and 'frame' in image:
+                image = image['frame']
+            
+            if isinstance(image, Image.Image):
+                # Convert PIL Image to tensor with correct dtype
+                image = self.clip_processor(images=image, return_tensors="pt")
+                image = {k: v.to(torch.float32) for k, v in image.items()}  # Ensure dtype matches model
+            
             # Format question
             if question:
                 prompt = f"<image>\n{question}"
             else:
                 prompt = "<image>\nDescribe what you see in this image in detail."
                 
-            # Generate response
-            generation_config = {
-                'max_new_tokens': 256,
-                'do_sample': True,
-                'temperature': 0.7
-            }
-            
+            # Generate response with timeout handling
+            start_time = time.time()
             response = self.model.chat(
                 self.tokenizer,
                 image,
                 prompt,
-                generation_config
+                generation_config={
+                    'max_new_tokens': 256,
+                    'do_sample': True,
+                    'temperature': 0.7
+                }
             )
             
-            return response
-
+            # Check timeout
+            if time.time() - start_time > 30:
+                raise TimeoutError("Scene understanding took too long")
+                
+            return {
+                'status': 'success',
+                'description': response,
+                'processing_time': time.time() - start_time
+            }
+                
         except Exception as e:
-            logging.error(f"Error in scene understanding: {e}")
-            return None
+            logging.error(f"Error generating scene understanding: {e}")
+            return {
+                'status': 'error',
+                'message': str(e),
+                'fallback_description': 'Unable to analyze image content'
+            }
+
+    def understand_scene(self, image, question=None):
+        """Enhanced scene understanding with performance monitoring and fallbacks"""
+        start_time = time.time()
+        
+        try:
+            self._check_model_health()
+            if not self.model_healthy:
+                raise RuntimeError("Vision model is unhealthy")
+                
+            # Process image with validation
+            processed_image = self._validate_and_process_image(image)
+            
+            # Convert PIL Image to tensor with correct dtype
+            if isinstance(processed_image, Image.Image):
+                processed_image = self.clip_processor(images=processed_image, return_tensors="pt")
+                processed_image = {k: v.to(torch.float32) for k, v in processed_image.items()}  # Ensure dtype matches model
+            
+            # Generate response with timeout handling
+            response = self._generate_scene_understanding(processed_image, question)
+            
+            # Monitor processing time
+            processing_time = time.time() - start_time
+            self._update_performance_metrics(processing_time)
+            
+            return response
+            
+        except Exception as e:
+            self.error_counts['scene_understanding'] += 1
+            logging.error(f"Scene understanding error: {e}")
+            
+            # Check if error threshold exceeded
+            if self.error_counts['scene_understanding'] > self.error_threshold:
+                self.model_healthy = False
+                logging.critical("Vision system error threshold exceeded")
+                
+            return self._get_fallback_response()
+
+    def _validate_and_process_image(self, image):
+        """Validate and process image with quality checks and format conversion"""
+        if image is None:
+            raise ValueError("Image input cannot be None")
+            
+        # Convert to PIL Image with validation
+        if isinstance(image, np.ndarray):
+            # Validate array properties
+            if not np.isfinite(image).all():
+                raise ValueError("Image contains invalid values")
+            if image.min() < 0 or image.max() > 255:
+                raise ValueError("Image values out of valid range")
+                
+            # Convert based on channels
+            if len(image.shape) == 2:  # Grayscale
+                image = Image.fromarray(image, 'L').convert('RGB')
+            elif len(image.shape) == 3:
+                if image.shape[2] == 4:  # RGBA
+                    image = Image.fromarray(image, 'RGBA').convert('RGB')
+                else:  # Assume BGR
+                    image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        elif isinstance(image, str):
+            if not os.path.exists(image):
+                raise FileNotFoundError(f"Image file not found: {image}")
+            image = Image.open(image).convert('RGB')
+        elif isinstance(image, dict) and 'frame' in image:
+            return self._validate_and_process_image(image['frame'])
+        elif not isinstance(image, Image.Image):
+            raise ValueError(f"Unsupported image type: {type(image)}")
+            
+        # Ensure RGB mode
+        image = image.convert('RGB')
+            
+        # Validate image size and content
+        if image.size[0] < 10 or image.size[1] < 10:
+            raise ValueError("Image too small")
+        if image.size[0] > 4096 or image.size[1] > 4096:
+            raise ValueError("Image too large")
+            
+        return image
+
+    def _update_performance_metrics(self, processing_time):
+        """Update performance monitoring metrics"""
+        self.processing_times.append(processing_time)
+        if len(self.processing_times) > self.max_processing_times:
+            self.processing_times.pop(0)
+            
+        # Calculate performance statistics
+        avg_time = np.mean(self.processing_times)
+        if avg_time > 5.0:  # Alert if average processing time exceeds 5 seconds
+            logging.warning(f"High average processing time: {avg_time:.2f}s")
+
+    def _get_fallback_response(self):
+        """Provide fallback response when vision system fails"""
+        return {
+            'status': 'error',
+            'message': 'Vision system temporarily unavailable',
+            'fallback_description': 'Unable to analyze image content'
+        }
 
     def find_element(self, image, target_description, confidence_threshold=0.3):
         """
@@ -191,22 +371,16 @@ class VisionAgent(BaseAgent):
     def perceive_scene(self, image, include_details=True):
         """
         Perceives and analyzes the current scene using InternVL2.
-        
-        Args:
-            image: Input image (path, PIL Image, or numpy array)
-            include_details: Whether to include detailed analysis
-        
-        Returns:
-            dict: Scene perception results including:
-                - description: General scene description
-                - objects: List of detected objects
-                - spatial_relations: Spatial relationships between objects
-                - attributes: Scene attributes (colors, lighting, etc)
         """
         try:
             # Process image if needed
-            processed_image = self.process_image(image)
-            
+            if isinstance(image, Image.Image):
+                processed_image = np.array(image)
+            elif isinstance(image, np.ndarray):
+                processed_image = image
+            else:
+                raise ValueError(f"Unsupported image type: {type(image)}")
+                
             # Get basic scene understanding
             scene_description = self.understand_scene(processed_image)
             
@@ -293,5 +467,24 @@ class VisionAgent(BaseAgent):
             'contrast': float(contrast),
             'dominant_colors': colors.tolist()
         }
+
+    def complete_task(self, task_description: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+        """Complete a vision-related task"""
+        try:
+            if not context or 'image' not in context:
+                return {'status': 'error', 'message': 'No image provided in context'}
+                
+            image = context['image']
+            if task_description.lower().startswith('find'):
+                return self.find_element(image, task_description)
+            else:
+                return self.understand_scene(image, task_description)
+                
+        except Exception as e:
+            logging.error(f"Error completing vision task: {e}")
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
 
 

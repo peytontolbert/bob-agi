@@ -15,6 +15,7 @@ import time
 import collections
 import json
 import threading
+import cv2
 
 class Eyesight:
     def __init__(self, screen):
@@ -65,12 +66,32 @@ class Eyesight:
 
     def generate_embedding(self, image):
         """
-        Generates CLIP embedding for an image.
+        Generates CLIP embedding for an image with proper format handling.
         """
         try:
+            # Convert to PIL Image if needed
+            if isinstance(image, np.ndarray):
+                if len(image.shape) == 2:  # Grayscale
+                    image = Image.fromarray(image, 'L').convert('RGB')
+                elif len(image.shape) == 3:
+                    if image.shape[2] == 4:  # RGBA
+                        image = Image.fromarray(image, 'RGBA').convert('RGB')
+                    else:  # Assume BGR
+                        image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            elif isinstance(image, dict) and 'frame' in image:
+                # Handle frame dictionary format
+                return self.generate_embedding(image['frame'])
+            elif not isinstance(image, Image.Image):
+                raise ValueError(f"Unsupported image type: {type(image)}")
+                
+            # Ensure RGB mode
+            image = image.convert('RGB')
+            
+            # Generate embedding
             inputs = self.clip_processor(images=image, return_tensors="pt", padding=True)
             image_features = self.clip_model.get_image_features(**inputs)
             return image_features.detach().numpy()
+            
         except Exception as e:
             logging.error(f"Error generating embedding: {e}")
             return None
@@ -200,8 +221,7 @@ class Eyesight:
 
     def capture_screen(self):
         """
-        Captures and processes the current screen state with enhanced error handling.
-        Uses high-level scene understanding for thinking.
+        Captures and processes the current screen state with proper image format handling.
         """
         try:
             # Get screenshot with retry logic
@@ -210,7 +230,7 @@ class Eyesight:
             
             for attempt in range(max_retries):
                 screenshot = self.screen.get_current_frame()
-                if screenshot is not None:
+                if screenshot is not None and isinstance(screenshot, Image.Image):
                     break
                 logging.warning(f"Screen capture attempt {attempt + 1} failed, retrying...")
                 time.sleep(0.1)
@@ -219,6 +239,9 @@ class Eyesight:
                 logging.error("All screen capture attempts failed")
                 return None
                 
+            # Ensure RGB format
+            screenshot = screenshot.convert('RGB')
+            
             # Get current thought context
             context = self._get_thought_context()
             

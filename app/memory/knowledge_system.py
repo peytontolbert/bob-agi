@@ -488,15 +488,15 @@ class KnowledgeSystem:
             return True
         return False
 
-    def query_by_embedding(self, query_embedding: np.ndarray, k: int = 5, threshold: float = 0.7) -> List[Dict]:
+    def query_by_embedding(self, query_embedding: np.ndarray, k: int = 5, threshold: float = 0.7) -> List[Dict[str, Any]]:
         """
-        Queries knowledge base using unified embeddings with semantic filtering.
-        
+        Queries the knowledge base using a unified embedding vector with semantic filtering.
+
         Args:
             query_embedding: Unified embedding vector to search with
             k: Number of results to return
             threshold: Minimum similarity threshold (0-1)
-            
+
         Returns:
             List of relevant knowledge entries with similarity scores
         """
@@ -526,9 +526,7 @@ class KnowledgeSystem:
                             'metadata': metadata,
                             'similarity': similarity,
                             'context_score': context_score,
-                            'final_score': final_score,
-                            'type': metadata.get('type', 'unknown'),
-                            'timestamp': metadata.get('creation_time', datetime.now())
+                            'final_score': final_score
                         })
             
             # Sort by final score and limit to k results
@@ -538,8 +536,8 @@ class KnowledgeSystem:
             # Update access patterns for retrieved entries
             self._update_access_patterns([r['metadata'] for r in results])
             
-            return results
-            
+            return results  # Ensure only the list of result dictionaries is returned
+                
         except Exception as e:
             logging.error(f"Error querying by embedding: {e}")
             return []

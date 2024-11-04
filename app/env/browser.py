@@ -14,20 +14,17 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 import time
 
 class Browser:
-    def __init__(self, audio: Audio = None, microphone: Microphone = None):
+    def __init__(self, audio: Audio = None, microphone: Microphone = None, screen=None):
         self.webdriver = None
         self.audio = audio
         self.microphone = microphone
-        self.screen = None
+        self.screen = screen
         self.update_interval = 100  # Update screen every 100ms
         self.is_capturing = False
         self.wait = None  # Will store WebDriverWait instance
         self._default_timeout = 10  # Add default timeout setting
+        self.target_fps = 30  # Target frames per second for screen capture
         
-        # Initialize Tk root for proper threading
-        self.root = tk.Tk()
-        self.root.withdraw()  # Hide the window
-
     def launch(self):
         """
         Launches the browser and initializes all components.
@@ -88,28 +85,60 @@ class Browser:
     def start_screen_capture(self):
         """Starts a thread to continuously capture and update the browser screen"""
         def capture_loop():
+            consecutive_failures = 0
+            max_consecutive_failures = 5
+            retry_delay = 0.1
+            frame_interval = 1.0 / self.target_fps
+            
             while self.is_capturing:
                 try:
                     if not self.webdriver:
                         logging.error("WebDriver not available")
                         break
                         
-                    # Capture screenshot
-                    screenshot = self.webdriver.get_screenshot_as_png()
+                    # Capture screenshot with retry mechanism
+                    screenshot = None
+                    for attempt in range(3):  # Max 3 retries
+                        try:
+                            screenshot = self.webdriver.get_screenshot_as_png()
+                            break
+                        except Exception as e:
+                            if attempt == 2:  # Last attempt
+                                raise
+                            time.sleep(retry_delay)
+                        
+                    if screenshot is None:
+                        raise Exception("Failed to capture screenshot after retries")
+                        
+                    # Process screenshot
                     image = Image.open(io.BytesIO(screenshot))
                     
                     if self.screen:
+                        # Validate image before updating
+                        if image.size != (self.screen.width, self.screen.height):
+                            image = image.resize((self.screen.width, self.screen.height), 
+                                              Image.Resampling.LANCZOS)
+                        
                         # Update screen with new frame
-                        self.root.after(0, lambda: self.screen.update_frame(image))
+                        self.screen.update_frame(image)
+                        consecutive_failures = 0  # Reset failure counter on success
                     else:
                         logging.warning("Screen not set, cannot update frame")
                     
-                    # Control capture rate
-                    time.sleep(0.1)  # 10 FPS
+                    # Frame rate control
+                    time.sleep(max(0.001, frame_interval))
                     
                 except Exception as e:
-                    logging.error(f"Error in screen capture loop: {e}")
-                    time.sleep(1)  # Wait before retrying on error
+                    consecutive_failures += 1
+                    logging.error(f"Error in screen capture loop (attempt {consecutive_failures}): {e}")
+                    
+                    if consecutive_failures >= max_consecutive_failures:
+                        logging.critical("Too many consecutive failures in screen capture, stopping...")
+                        self.is_capturing = False
+                        break
+                        
+                    # Exponential backoff for retry delays
+                    time.sleep(min(30, retry_delay * (2 ** consecutive_failures)))
                     
         # Start capture thread
         self.capture_thread = threading.Thread(target=capture_loop, daemon=True)
@@ -128,11 +157,6 @@ class Browser:
                 self.webdriver.quit()
             except Exception as e:
                 logging.error(f"Error closing webdriver: {e}")
-        if self.root:
-            try:
-                self.root.destroy()
-            except Exception as e:
-                logging.error(f"Error destroying root window: {e}")
 
     def navigate(self, url: str):
         if self.webdriver:
@@ -147,7 +171,10 @@ class Browser:
         :param y: Y-coordinate.
         :param speed: Movement speed factor.
         """
-        logging.debug(f"Moving mouse to ({x}, {y}) with speed {speed}.")
+        logging.debug(f"Moving mouse to ({x}, {y}) with speed {speed}).")
+        if self.webdriver:
+            script = f"window.moveMouse({x}, {y}, {speed})"
+            self.webdriver.execute_script(script)  # Execute the mouse move script
 
     def click_mouse(self, button='left'):
         """
@@ -155,7 +182,13 @@ class Browser:
         
         :param button: The mouse button to click ('left', 'right', 'middle').
         """
+        valid_buttons = ['left', 'right', 'middle']
+        if button not in valid_buttons:
+            raise ValueError(f"Invalid mouse button: {button}")  # Raise ValueError for invalid buttons
         logging.debug(f"Clicking mouse '{button}' button.")
+        if self.webdriver:
+            script = f"window.clickMouse('{button}')"
+            self.webdriver.execute_script(script)  # Execute the mouse click script
 
     def wait_for_element(self, by, value, timeout=10):
         """

@@ -17,10 +17,12 @@ class Discord:
     def __init__(self, browser: Browser):
         self.browser = browser
         self.client = None
+        self.root = None
+        self.screen = None
+        self.connected = False
         self.current_channel = None
         self.current_server = None
         self.target_server_id = None
-        self.connected = False
         self.discord_url = "https://discord.com/channels/@me"
 
     def launch(self):
@@ -131,5 +133,15 @@ class Discord:
             return {'success': False, 'error': 'Join button not found'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
+
+    def close(self):
+        """Closes Discord and cleans up resources"""
+        # ... existing code ...
+        # Remove any attempts to destroy Tkinter root
+        if self.root:
+            try:
+                self.root.destroy()
+            except Exception as e:
+                logging.error(f"Error destroying Discord root window: {e}")
 
 

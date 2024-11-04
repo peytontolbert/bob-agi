@@ -13,10 +13,13 @@ import logging
 import subprocess
 import discord
 import threading
+import multiprocessing
+from typing import Dict, Any
 
 
-class Computer:
+class Computer(multiprocessing.Process):
     def __init__(self):
+        super().__init__()
         self.screen = Screen()
         self.audio = Audio()
         self.microphone = Microphone()
@@ -24,11 +27,9 @@ class Computer:
         self.mouse = Mouse(target=self.screen, movement_speed=1.0)
 
         self.apps = {
-            "browser": Browser(audio=self.audio, microphone=self.microphone),
+            "browser": Browser(audio=self.audio, microphone=self.microphone, screen=self.screen),
             "discord": None  # Will be initialized after browser
         }
-        # Set screen reference for browser
-        self.apps["browser"].set_screen(self.screen)
         
         # Initialize Discord after browser setup
         self.discord = None
@@ -39,6 +40,7 @@ class Computer:
         
         self.screen_container = None
 
+    def run(self):
         self.startup()
 
     def startup(self):
@@ -142,3 +144,15 @@ class Computer:
             self.screen_container.wait()
             logging.debug("Screen container stopped.")
         # ... existing shutdown code ...
+
+    def get_system_state(self) -> Dict[str, Any]:
+        """
+        Returns the current system state including running applications,
+        resource usage, notifications, and interaction mode.
+        """
+        return {
+            'running_apps': list(self.apps.keys()),
+            'resource_usage': self.get_resource_usage(),
+            'notifications': self.get_pending_notifications(),
+            'interaction_mode': self.get_interaction_mode()
+        }

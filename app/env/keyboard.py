@@ -27,6 +27,7 @@ class Keyboard:
     def start(self):
         """Start keyboard thread if not already running."""
         if not self.is_running():
+            self.running = True
             self.thread = threading.Thread(target=self.process_queue, daemon=True)
             self.thread.start()
         else:
