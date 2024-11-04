@@ -22,6 +22,7 @@ class Eyesight:
         self.screen = screen
         self.vision_queue = queue.Queue()
         self.vision_agent = VisionAgent()
+        self.is_running = True
         
         # Initialize CLIP model for embeddings
         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -373,7 +374,7 @@ class Eyesight:
         """
         Continuously processes visual input based on current thoughts.
         """
-        while True:
+        while self.is_running:
             try:
                 current_time = time.time()
                 
@@ -381,33 +382,35 @@ class Eyesight:
                     # Get current frame
                     frame = self.screen.get_current_frame()
                     if frame is None:
+                        time.sleep(0.1)
                         continue
                         
                     # Get current context from Bob's thoughts
                     context = self._get_thought_context()
                     
                     # Get scene perception
-                    perception = self.vision_agent.perceive_scene(frame, context)
+                    perception = self.vision_agent.perceive_scene(frame)
                     
-                    if perception:
+                    if perception and perception.get('status') == 'success':
                         # Generate embedding
                         embedding = self.generate_embedding(frame)
                         
                         # Store perception and embedding
-                        self.perception_stream.append({
+                        perception_data = {
                             'perception': perception,
                             'embedding': embedding,
                             'timestamp': current_time,
                             'context': context
-                        })
+                        }
                         
+                        self.perception_stream.append(perception_data)
                         self.last_perception_time = current_time
                         
             except Exception as e:
                 logging.error(f"Error in continuous perception: {e}")
-                time.sleep(1.0)
+                time.sleep(0.1)  # Avoid tight loop on errors
             
-            time.sleep(0.01)
+            time.sleep(0.01)  # Small sleep to prevent CPU overuse
 
     def _get_thought_context(self):
         """Gets current thought context from Bob."""

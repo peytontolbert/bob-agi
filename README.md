@@ -136,6 +136,13 @@ pytest tests/path/to/test.py -vv -s  # -s shows print statements
 pytest -k "test_browser"  # Runs all tests with "test_browser" in the name
 ```
 
+
+### Example of a unit test:
+
+```bash
+pytest tests/unit/computer/test_screen.py -v
+```
+
 Bob will initialize his environment, join the Discord voice channel, and begin interacting based on the defined parameters.
 
 ## Contributing

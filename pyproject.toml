@@ -1,15 +1,18 @@
-[tool.pytest]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
-addopts = "-v --tb=short --strict-markers"
-markers = [
-    "unit: marks tests as unit tests",
-    "integration: marks tests as integration tests",
-    "e2e: marks tests as end-to-end tests",
-    "slow: marks tests as slow running",
-    "vision: marks tests that use vision capabilities",
-    "audio: marks tests that use audio capabilities",
-    "network: marks tests that require network access"
-] 
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pytest = "^6.0"
+pytest-asyncio = "^0.14.0"
+pillow = "^8.0"
+numpy = "^1.19"
+opencv-python = "^4.5" 

@@ -373,19 +373,14 @@ class VisionAgent(BaseAgent):
         Perceives and analyzes the current scene using InternVL2.
         """
         try:
-            # Process image if needed
-            if isinstance(image, Image.Image):
-                processed_image = np.array(image)
-            elif isinstance(image, np.ndarray):
-                processed_image = image
-            else:
-                raise ValueError(f"Unsupported image type: {type(image)}")
-                
+            # Process image with proper validation
+            processed_image = self._validate_and_process_image(image)
+            
             # Get basic scene understanding
-            scene_description = self.understand_scene(processed_image)
+            scene_description = self._generate_scene_understanding(processed_image)
             
             if not include_details:
-                return {'description': scene_description}
+                return {'description': scene_description.get('description', '')}
                 
             # Get detailed object detection
             results = self.yolo_model(processed_image)
@@ -400,22 +395,20 @@ class VisionAgent(BaseAgent):
                     'bbox': (int(x1), int(y1), int(x2), int(y2))
                 })
                 
-            # Analyze spatial relationships
-            spatial_relations = self._analyze_spatial_relations(objects)
-            
-            # Extract scene attributes
-            attributes = self._extract_scene_attributes(processed_image)
-            
             return {
-                'description': scene_description,
+                'description': scene_description.get('description', ''),
                 'objects': objects,
-                'spatial_relations': spatial_relations,
-                'attributes': attributes
+                'status': 'success'
             }
             
         except Exception as e:
             logging.error(f"Error in scene perception: {e}")
-            return {'error': str(e)}
+            return {
+                'description': 'Failed to analyze scene',
+                'objects': [],
+                'status': 'error',
+                'error': str(e)
+            }
             
     def _analyze_spatial_relations(self, objects):
         """Analyzes spatial relationships between detected objects"""

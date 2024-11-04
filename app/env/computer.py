@@ -14,7 +14,7 @@ import subprocess
 import discord
 import threading
 import multiprocessing
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 
 class Computer(multiprocessing.Process):
@@ -62,13 +62,13 @@ class Computer(multiprocessing.Process):
             if not self.apps["browser"].webdriver:
                 raise Exception("Browser WebDriver not initialized")
                 
-            # Initialize Discord after browser is ready
+            # Initialize and launch Discord after browser is ready
             logging.info("Initializing Discord...")
             self.discord = Discord(browser=self.apps["browser"])
             self.apps["discord"] = self.discord
             
             # Launch Discord
-            if not self.discord.launch():
+            if not self.launch_app("discord"):
                 logging.error("Failed to launch Discord")
             
             # Start input devices
@@ -156,3 +156,25 @@ class Computer(multiprocessing.Process):
             'notifications': self.get_pending_notifications(),
             'interaction_mode': self.get_interaction_mode()
         }
+
+    def get_resource_usage(self) -> Dict[str, float]:
+        """
+        Returns current resource usage metrics.
+        """
+        return {
+            'cpu': 0.0,  # Placeholder for CPU usage
+            'memory': 0.0,  # Placeholder for memory usage
+            'disk': 0.0  # Placeholder for disk usage
+        }
+
+    def get_pending_notifications(self) -> List[str]:
+        """
+        Returns list of pending notifications.
+        """
+        return []
+
+    def get_interaction_mode(self) -> str:
+        """
+        Returns current interaction mode.
+        """
+        return 'normal'
