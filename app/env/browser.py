@@ -98,20 +98,20 @@ class Browser:
                         
                     # Capture screenshot with retry mechanism
                     screenshot = None
-                    for attempt in range(3):  # Max 3 retries
+                    for attempt in range(3):
                         try:
                             screenshot = self.webdriver.get_screenshot_as_png()
                             break
                         except Exception as e:
-                            if attempt == 2:  # Last attempt
+                            if attempt == 2:
                                 raise
                             time.sleep(retry_delay)
                         
                     if screenshot is None:
                         raise Exception("Failed to capture screenshot after retries")
                         
-                    # Process screenshot
-                    image = Image.open(io.BytesIO(screenshot))
+                    # Convert to PIL Image and ensure RGB
+                    image = Image.open(io.BytesIO(screenshot)).convert('RGB')
                     
                     if self.screen:
                         # Validate image before updating
@@ -119,13 +119,12 @@ class Browser:
                             image = image.resize((self.screen.width, self.screen.height), 
                                               Image.Resampling.LANCZOS)
                         
-                        # Update screen with new frame
-                        self.screen.update_frame(image)
-                        consecutive_failures = 0  # Reset failure counter on success
+                        # Update screen's current frame
+                        self.screen.current_frame = image
+                        consecutive_failures = 0
                     else:
                         logging.warning("Screen not set, cannot update frame")
                     
-                    # Frame rate control
                     time.sleep(max(0.001, frame_interval))
                     
                 except Exception as e:
@@ -137,7 +136,6 @@ class Browser:
                         self.is_capturing = False
                         break
                         
-                    # Exponential backoff for retry delays
                     time.sleep(min(30, retry_delay * (2 ** consecutive_failures)))
                     
         # Start capture thread

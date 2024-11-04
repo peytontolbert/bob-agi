@@ -43,6 +43,7 @@ class VisionEncoder(ModalityEncoder):
             raise
 
     def encode(self, image: Union[Image.Image, np.ndarray, Dict]) -> np.ndarray:
+        """Get CLIP embedding for multimodal processing"""
         try:
             # Handle dictionary input
             if isinstance(image, dict):
@@ -53,32 +54,34 @@ class VisionEncoder(ModalityEncoder):
 
             # Convert numpy array to PIL Image if needed
             if isinstance(image, np.ndarray):
-                if len(image.shape) == 2:  # Grayscale
-                    image = Image.fromarray(image, mode='L').convert('RGB')
-                elif len(image.shape) == 3:
-                    if image.shape[2] == 4:  # RGBA
-                        image = Image.fromarray(image, mode='RGBA').convert('RGB')
-                    else:  # Assume RGB/BGR
-                        image = Image.fromarray(image).convert('RGB')
-                else:
-                    raise ValueError(f"Invalid image shape: {image.shape}")
-            elif isinstance(image, Image.Image):
-                image = image.convert('RGB')  # Ensure RGB mode
-            else:
+                image = self._convert_numpy_to_pil(image)
+            elif not isinstance(image, Image.Image):
                 raise ValueError(f"Unsupported image type: {type(image)}")
 
-            # Process image for model
+            # Ensure RGB mode
+            image = image.convert('RGB')
+
+            # Get CLIP embedding
             inputs = self.processor(images=image, return_tensors="pt")
-            
-            # Get embeddings
             with torch.no_grad():
-                outputs = self.model.get_image_features(**inputs)
-                
-            return outputs.numpy()
-            
+                embedding = self.model.get_image_features(**inputs)
+            return embedding.numpy()
+
         except Exception as e:
             logging.error(f"Error encoding image: {e}")
             return np.zeros((1, self.embedding_dim))
+
+    def _convert_numpy_to_pil(self, image: np.ndarray) -> Image.Image:
+        """Convert numpy array to PIL Image with proper format handling"""
+        if len(image.shape) == 2:  # Grayscale
+            return Image.fromarray(image, mode='L').convert('RGB')
+        elif len(image.shape) == 3:
+            if image.shape[2] == 4:  # RGBA
+                return Image.fromarray(image, mode='RGBA').convert('RGB')
+            else:  # Assume RGB/BGR
+                return Image.fromarray(image).convert('RGB')
+        else:
+            raise ValueError(f"Invalid image shape: {image.shape}")
 
 class AudioEncoder(ModalityEncoder):
     def __init__(self, model_name: str = "facebook/wav2vec2-base-960h"):

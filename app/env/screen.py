@@ -21,9 +21,10 @@ class Screen:
         self.resolution = (800, 600)  # Match browser viewport
         self.frame_buffer = []
         self.frame_lock = threading.Lock()  # Add thread safety
-        self.last_frame_time = 0
+        self.last_frame_time = time.time()  # Initialize to current time
         self.frame_count = 0
         self.fps = 0
+        self._tk_ready = False
 
     def initialize(self):
         """
@@ -96,13 +97,16 @@ class Screen:
         try:
             with self.frame_lock:
                 current_time = time.time()
+                time_diff = current_time - self.last_frame_time
                 
-                # Calculate FPS
-                if current_time - self.last_frame_time >= 1.0:
-                    self.fps = self.frame_count
+                # Update frame count
+                self.frame_count += 1
+                
+                # Calculate FPS every second
+                if time_diff >= 1.0:
+                    self.fps = int(self.frame_count / time_diff)
                     self.frame_count = 0
                     self.last_frame_time = current_time
-                self.frame_count += 1
                 
                 # Validate and convert frame if needed
                 if frame is None:
@@ -123,9 +127,9 @@ class Screen:
                 # Update frame buffer
                 self._update_frame_buffer(frame)
                     
-                if not self.is_container and self.canvas:
+                # Only try to update canvas if we're not in test mode
+                if not self.is_container and self.canvas and self._tk_ready:
                     try:
-                        # Convert to PhotoImage and display using thread-safe method
                         photo = ImageTk.PhotoImage(frame)
                         self.canvas.after(0, lambda: self._update_canvas(photo))
                     except Exception as e:
@@ -157,32 +161,33 @@ class Screen:
 
     def get_current_frame(self):
         """
-        Returns the current frame with enhanced error handling and format consistency.
-        
-        Returns:
-            PIL.Image or None: The current screen frame as a PIL Image in RGB format
+        Returns the current frame in a consistent RGB PIL Image format.
         """
         try:
-            if self.current_frame is not None:
-                # Convert numpy array to PIL Image if needed
-                if isinstance(self.current_frame, np.ndarray):
-                    if len(self.current_frame.shape) == 2:  # Grayscale
-                        return Image.fromarray(self.current_frame, 'L').convert('RGB')
-                    elif len(self.current_frame.shape) == 3:
-                        if self.current_frame.shape[2] == 4:  # RGBA
-                            return Image.fromarray(self.current_frame, 'RGBA').convert('RGB')
-                        else:  # Assume BGR/RGB
-                            return Image.fromarray(cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB))
-                elif isinstance(self.current_frame, Image.Image):
-                    return self.current_frame.convert('RGB')  # Ensure RGB mode
+            if not self.current_frame:
+                # Create blank frame if none exists
+                blank = Image.new('RGB', (self.width, self.height), 'black')
+                return blank
                 
-            # If no frame exists, create blank RGB frame
-            blank_frame = Image.new('RGB', (self.width, self.height), 'black')
-            logging.debug("Created blank RGB frame due to no current frame")
-            return blank_frame
+            # If numpy array, convert to PIL Image
+            if isinstance(self.current_frame, np.ndarray):
+                if len(self.current_frame.shape) == 2:  # Grayscale
+                    return Image.fromarray(self.current_frame, 'L').convert('RGB')
+                elif len(self.current_frame.shape) == 3:
+                    if self.current_frame.shape[2] == 4:  # RGBA
+                        return Image.fromarray(self.current_frame, 'RGBA').convert('RGB')
+                    else:  # Assume BGR
+                        rgb = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+                        return Image.fromarray(rgb)
+                        
+            # If already PIL Image, ensure RGB
+            elif isinstance(self.current_frame, Image.Image):
+                return self.current_frame.convert('RGB')
+                
+            return self.current_frame
             
         except Exception as e:
-            logging.error(f"Error getting current frame: {e}", exc_info=True)
+            logging.error(f"Error getting current frame: {e}")
             return None
 
     def get_frame_buffer(self):

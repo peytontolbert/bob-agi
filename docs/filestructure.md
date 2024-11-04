@@ -6,6 +6,32 @@ project-root/
 │   ├── firststeps.md
 │   └── first-steps.md
 ├── app/
+│   ├── actions/
+│   │   ├── mouse.py
+│   │   ├── keyboard.py
+│   │   └── microphone.py
+│   ├── agents/
+│   │   ├── audio.py
+│   │   ├── base.py
+│   │   ├── speech.py
+│   │   ├── text.py
+│   │   └── vision.py
+│   ├── bob/
+│   │   └── bob.py
+│   ├── data/
+│   │   └── vision_memory/
+│   ├── embeddings/
+│   │   └── embeddings.py
+│   ├── env/
+│   │   ├── audio.py
+│   │   ├── browser.py
+│   │   ├── computer.py
+│   │   ├── discord.py
+│   │   ├── filesystem.py
+│   │   ├── keyboard.py
+│   │   ├── microphone.py
+│   │   ├── mouse.py
+│   │   └── screen.py
 │   ├── images/
 │   │   ├── discord_image.png
 │   │   ├── vscode_image.png
@@ -29,10 +55,12 @@ project-root/
 │   │   ├── chrome.py
 │   │   ├── computer.py
 │   │   └── discord.py
-│   ├── bob/
-│   │   └── bob.py
-│   └── actions/
-│       ├── mouse.py
-│       ├── keyboard.py
-│       └── microphone.py
+│   └── prompts/
+│       ├── autobiographical.txt
+│       ├── causal.txt
+│       ├── conceptual.txt
+│       ├── episodic.txt
+│       ├── metacognitive.txt
+│       ├── procedural.txt
+│       └── temporal.txt
 └── main.py

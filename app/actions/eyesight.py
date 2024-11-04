@@ -89,13 +89,14 @@ class Eyesight:
             image = image.convert('RGB')
             
             # Generate embedding
-            inputs = self.clip_processor(images=image, return_tensors="pt", padding=True)
-            image_features = self.clip_model.get_image_features(**inputs)
-            return image_features.detach().numpy()
+            with torch.no_grad():
+                inputs = self.clip_processor(images=image, return_tensors="pt")
+                image_features = self.clip_model.get_image_features(**inputs)
+                return image_features.detach().numpy()
             
         except Exception as e:
             logging.error(f"Error generating embedding: {e}")
-            return None
+            return np.zeros((1, 512))  # Return zero embedding as fallback
 
     def save_image_with_embedding(self, image, description=None):
         """
@@ -154,28 +155,61 @@ class Eyesight:
             logging.error(f"Error finding similar images: {e}")
             return []
 
-    def process_visual_input(self, input_text, image_path):
+    def process_visual_input(self, input_text, image):
         """
         Processes visual input using the vision agent and stores embeddings.
         """
         try:
+            # Validate image input
+            if image is None:
+                raise ValueError("Image input cannot be None")
+                
+            # Process image to correct format
+            if isinstance(image, np.ndarray):
+                if len(image.shape) == 2:  # Grayscale
+                    image = Image.fromarray(image, 'L').convert('RGB')
+                elif len(image.shape) == 3:
+                    if image.shape[2] == 4:  # RGBA
+                        image = Image.fromarray(image, 'RGBA').convert('RGB')
+                    else:  # Assume BGR
+                        image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            elif isinstance(image, dict) and 'frame' in image:
+                return self.process_visual_input(input_text, image['frame'])
+            
+            if not isinstance(image, Image.Image):
+                raise ValueError(f"Unsupported image type: {type(image)}")
+                
+            # Ensure RGB mode
+            image = image.convert('RGB')
+            
+            # Generate embedding first
+            embedding = self.generate_embedding(image)
+            
             # Process with vision agent
-            result = self.vision_agent.complete_task(
-                input_text,
-                image_path
-            )
+            result = self.vision_agent.understand_scene(image, input_text)
             
-            # Save image with embedding if it's not already saved
-            if isinstance(image_path, Image.Image):
-                saved_path = self.save_image_with_embedding(image_path, description=result)
-                if saved_path:
-                    result = {'description': result, 'image_path': saved_path}
+            if not isinstance(result, dict):
+                result = {'description': str(result)}
+                
+            # Add embedding and metadata
+            result.update({
+                'embedding': embedding,
+                'timestamp': time.time(),
+                'status': 'success'
+            })
             
-            self.vision_queue.put(result)
+            # Save to perception stream
+            self.perception_stream.append(result)
+            
             return result
+            
         except Exception as e:
             logging.error(f"Error processing visual input: {e}")
-            return None
+            return {
+                'status': 'error',
+                'error': str(e),
+                'description': 'Failed to process visual input'
+            }
 
     def process_screen_buffer(self):
         """

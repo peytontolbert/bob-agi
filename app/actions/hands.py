@@ -15,6 +15,13 @@ class Hands:
         self.last_action_time = None
         self.action_cooldown = 0.1  # 100ms minimum between actions
         self.initialized = False
+        self.position_tolerance = 5  # Pixels of tolerance for position verification
+        self.click_delay = 0.2  # Delay between move and click
+        self.drag_delays = {
+            'pre_drag': 0.2,  # Delay before starting drag
+            'post_move': 0.1,  # Delay after moving to target
+            'post_drag': 0.1   # Delay after completing drag
+        }
         self.initialize()
 
     def initialize(self):
@@ -86,15 +93,19 @@ class Hands:
             
             # Move to element first
             self.move_mouse(x, y, smooth=True)
-            time.sleep(0.2)  # Small delay between move and click
+            time.sleep(self.click_delay)  # Configurable delay
             
-            # Verify position before clicking
+            # Verify position with tolerance
             current_x, current_y = self.mouse.get_position()
-            if abs(current_x - x) > 5 or abs(current_y - y) > 5:
-                logging.warning("Mouse position verification failed")
+            if (abs(current_x - x) > self.position_tolerance or 
+                abs(current_y - y) > self.position_tolerance):
+                logging.warning(f"Mouse position verification failed: expected ({x},{y}), got ({current_x},{current_y})")
                 return False
 
-            # Perform click
+            # Perform click with confidence check
+            if element.get('confidence', 1.0) < 0.8:
+                logging.warning(f"Low confidence click attempted: {element.get('confidence')}")
+                
             self.mouse.click(button='left')
             self.last_action = ('click', element)
             self.last_action_time = time.time()
@@ -137,14 +148,7 @@ class Hands:
 
     def drag_element(self, start_element: Dict, end_coordinates: Tuple[int, int]) -> bool:
         """
-        Performs a drag operation from one element to target coordinates.
-        
-        Args:
-            start_element: Dictionary containing starting element info
-            end_coordinates: (x, y) coordinates of destination
-            
-        Returns:
-            bool: True if drag was successful
+        Enhanced drag operation with better timing and verification
         """
         try:
             if not self._validate_element(start_element):
@@ -156,20 +160,36 @@ class Hands:
             if not self._check_action_cooldown():
                 return False
 
-            # Execute drag operation
             start_x, start_y = start_element['coordinates']
             end_x, end_y = end_coordinates
 
-            # Move to start position
+            # Move to start position with verification
             self.move_mouse(start_x, start_y, smooth=True)
-            time.sleep(0.2)
+            time.sleep(self.drag_delays['pre_drag'])
+
+            # Verify start position
+            current_x, current_y = self.mouse.get_position()
+            if (abs(current_x - start_x) > self.position_tolerance or 
+                abs(current_y - start_y) > self.position_tolerance):
+                logging.warning("Start position verification failed")
+                return False
 
             # Perform drag
             self.mouse.action_queue.append(('click_down', 'left'))
             time.sleep(0.1)
             self.move_mouse(end_x, end_y, smooth=True)
-            time.sleep(0.1)
+            time.sleep(self.drag_delays['post_move'])
+            
+            # Verify end position
+            current_x, current_y = self.mouse.get_position()
+            if (abs(current_x - end_x) > self.position_tolerance or 
+                abs(current_y - end_y) > self.position_tolerance):
+                logging.warning("End position verification failed")
+                self.mouse.action_queue.append(('click_up', 'left'))
+                return False
+
             self.mouse.action_queue.append(('click_up', 'left'))
+            time.sleep(self.drag_delays['post_drag'])
 
             self.last_action = ('drag', (start_element, end_coordinates))
             self.last_action_time = time.time()

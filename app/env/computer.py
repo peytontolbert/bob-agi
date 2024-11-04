@@ -62,6 +62,11 @@ class Computer(multiprocessing.Process):
             if not self.apps["browser"].webdriver:
                 raise Exception("Browser WebDriver not initialized")
                 
+            # Ensure screen is receiving frames
+            if not self.screen.get_current_frame():
+                logging.warning("Screen not receiving frames, checking connection...")
+                self.apps["browser"].set_screen(self.screen)
+                
             # Initialize and launch Discord after browser is ready
             logging.info("Initializing Discord...")
             self.discord = Discord(browser=self.apps["browser"])
