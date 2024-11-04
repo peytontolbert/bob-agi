@@ -102,7 +102,7 @@ class VisualAccuracyPipeline:
             # Update accuracy metrics
             self._update_accuracy_metrics(result)
             
-            # Save result
+            # Save result and annotated frame
             self._save_analysis_result(result, current_frame)
             
             return result
@@ -260,12 +260,17 @@ class VisualAccuracyPipeline:
     def _save_detection_image(self, frame: Image.Image, element: Dict, description: str):
         """Saves the frame with detected element highlighted and coordinates displayed"""
         try:
+            # Add debug logging
+            logging.debug(f"Saving detection image for element: {description}")
+            logging.debug(f"Element data: {element}")
+            
             # Convert PIL to OpenCV format
             frame_cv = cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR)
             
             # Draw bounding box
             bbox = element.get('bbox')
             if bbox:
+                logging.debug(f"Drawing bbox: {bbox}")
                 x1, y1, x2, y2 = bbox
                 cv2.rectangle(frame_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 
@@ -291,12 +296,14 @@ class VisualAccuracyPipeline:
             filename = f"detection_{timestamp}.png"
             filepath = os.path.join(self.results_dir, filename)
             cv2.imwrite(filepath, frame_cv)
+            logging.debug(f"Saved detection image to: {filepath}")
             
         except Exception as e:
             logging.error(f"Error saving detection image: {e}")
+            logging.debug(f"Stack trace: {traceback.format_exc()}")
 
     def _save_analysis_result(self, result: Dict, frame: Image.Image):
-        """Saves analysis result and corresponding image"""
+        """Saves analysis result and corresponding annotated image"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
@@ -304,13 +311,47 @@ class VisualAccuracyPipeline:
             result_file = os.path.join(self.results_dir, f"analysis_{timestamp}.json")
             with open(result_file, 'w') as f:
                 json.dump(result, f, indent=2)
-                
-            # Save frame
-            frame_file = os.path.join(self.results_dir, f"frame_{timestamp}.png")
-            frame.save(frame_file)
             
+            # Save annotated frame if element was found
+            if result.get('element_found') and result.get('element_details'):
+                frame_cv = cv2.cvtColor(np.array(frame), cv2.COLOR_RGB2BGR)
+                element = result['element_details']
+                description = result['target_description']
+                
+                # Draw bounding box and annotations
+                bbox = element.get('bbox')
+                if bbox:
+                    x1, y1, x2, y2 = bbox
+                    cv2.rectangle(frame_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    
+                    # Add element description
+                    cv2.putText(frame_cv, f"{description[:30]}...", (x1, y1-10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    
+                    # Add coordinates
+                    coord_text = f"({x1},{y1}),({x2},{y2})"
+                    cv2.putText(frame_cv, coord_text, (x1, y2+20),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                    
+                    # Add center point and its coordinates
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    cv2.circle(frame_cv, (center_x, center_y), 4, (0, 0, 255), -1)
+                    center_text = f"Center: ({center_x},{center_y})"
+                    cv2.putText(frame_cv, center_text, (x1, y2+40),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                
+                # Save annotated frame
+                frame_file = os.path.join(self.results_dir, f"frame_{timestamp}.png")
+                cv2.imwrite(frame_file, frame_cv)
+            else:
+                # Save original frame if no element was found
+                frame_file = os.path.join(self.results_dir, f"frame_{timestamp}.png")
+                frame.save(frame_file)
+                
         except Exception as e:
             logging.error(f"Error saving analysis result: {e}")
+            logging.debug(f"Stack trace: {traceback.format_exc()}")
 
     def _save_test_results(self, results: Dict):
         """Saves test results to file"""

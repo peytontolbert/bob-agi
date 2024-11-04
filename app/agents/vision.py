@@ -68,12 +68,12 @@ class VisionAgent(BaseAgent):
     def _initialize_models(self):
         """Initialize InternVL2 model for direct image+text understanding"""
         try:
-            path = "OpenGVLab/InternVL2-2B"
+            path = "OpenGVLab/InternVL2-4B"
             self.model = AutoModel.from_pretrained(
                 path,
                 torch_dtype=torch.bfloat16,
                 low_cpu_mem_usage=True,
-                use_flash_attn=True,
+                use_flash_attn=False,
                 trust_remote_code=True
             ).eval()
             
