@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import torch
 from app.agents.vision import VisionAgent
+import time
 
 @pytest.fixture
 def vision_agent():
@@ -153,3 +154,42 @@ def test_complete_task(vision_agent, sample_image):
     # Test missing context
     result = vision_agent.complete_task("find button", {})
     assert result['status'] == 'error'
+
+# Add model health monitoring tests
+def test_vision_model_health_monitoring(vision_agent):
+    """Test vision model health checks"""
+    # Simulate successful processing
+    vision_agent.understand_scene(Image.new('RGB', (100, 100)))
+    assert vision_agent.model_healthy
+    
+    # Simulate errors
+    for _ in range(vision_agent.error_threshold + 1):
+        vision_agent.error_counts['scene_understanding'] += 1
+    
+    # Should mark model as unhealthy
+    vision_agent._check_model_health()
+    assert not vision_agent.model_healthy
+
+@pytest.mark.timeout(10)
+def test_vision_timeout_handling(vision_agent):
+    """Test timeout handling for vision operations"""
+    # Create large test image
+    large_image = Image.new('RGB', (4000, 4000))
+    
+    with pytest.raises(TimeoutError):
+        vision_agent.understand_scene(large_image)
+
+def test_vision_performance_monitoring(vision_agent):
+    """Test vision performance metrics"""
+    test_image = Image.new('RGB', (100, 100))
+    
+    # Process multiple images
+    times = []
+    for _ in range(10):
+        start = time.time()
+        vision_agent.understand_scene(test_image)
+        times.append(time.time() - start)
+    
+    # Verify performance tracking
+    assert len(vision_agent.processing_times) > 0
+    assert np.mean(times) < 2.0  # Average under 2 seconds

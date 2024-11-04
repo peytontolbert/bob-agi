@@ -4,6 +4,8 @@ from PIL import Image
 import threading
 from unittest.mock import Mock, patch, MagicMock
 from app.env.screen import Screen
+import time
+from psutil import get_process_memory
 
 @pytest.fixture
 def screen():
@@ -152,3 +154,57 @@ async def test_thread_safety():
         # Verify frame buffer integrity
         assert len(screen.frame_buffer) <= 90
         assert isinstance(screen.get_current_frame(), Image.Image)
+
+def test_screen_performance_metrics(screen):
+    """Test screen performance monitoring"""
+    test_frame = Image.new('RGB', (800, 600), color='red')
+    
+    # Track frame processing times
+    start_time = time.time()
+    for _ in range(30):  # Simulate 1 second of frames
+        screen.update_frame(test_frame)
+    end_time = time.time()
+    
+    # Verify frame rate
+    frame_time = (end_time - start_time) / 30
+    assert frame_time < 0.1  # Each frame should process in under 100ms
+    
+    # Test FPS calculation
+    assert screen.fps > 0
+    assert screen.fps <= 30  # Should not exceed input rate
+
+def test_screen_resource_management(screen):
+    """Test screen resource cleanup and management"""
+    test_frame = Image.new('RGB', (800, 600), color='red')
+    
+    # Fill frame buffer
+    for _ in range(100):
+        screen.update_frame(test_frame)
+        
+    initial_memory = get_process_memory()
+    
+    # Process many more frames
+    for _ in range(1000):
+        screen.update_frame(test_frame)
+        
+    final_memory = get_process_memory()
+    
+    # Verify memory usage stays reasonable
+    memory_increase = final_memory - initial_memory
+    assert memory_increase < 100 * 1024 * 1024  # Less than 100MB increase
+
+@pytest.mark.timeout(5)
+def test_screen_error_recovery(screen):
+    """Test screen recovery from errors"""
+    # Test invalid frame handling
+    screen.update_frame(None)
+    screen.update_frame("invalid")
+    screen.update_frame(np.zeros((100, 100)))  # Wrong size
+    
+    # Should recover and accept valid frame
+    valid_frame = Image.new('RGB', (800, 600))
+    screen.update_frame(valid_frame)
+    
+    current = screen.get_current_frame()
+    assert isinstance(current, Image.Image)
+    assert current.size == (800, 600)

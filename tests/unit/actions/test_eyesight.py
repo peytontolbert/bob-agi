@@ -4,6 +4,7 @@ from PIL import Image
 import numpy as np
 import torch
 from app.actions.eyesight import Eyesight
+import time
 
 @pytest.fixture
 def mock_screen():
@@ -112,3 +113,64 @@ class TestEyesight:
         result = eyesight.process_visual_input("analyze this", test_image)
         assert result is not None
         mock_vision_agent.complete_task.assert_called_once()
+
+    @pytest.mark.timeout(10)
+    def test_continuous_perception_stream(self, eyesight, mock_screen):
+        """Test continuous perception stream processing"""
+        # Setup mock frames
+        frames = [Image.new('RGB', (100, 100)) for _ in range(5)]
+        mock_screen.get_current_frame.side_effect = frames
+        
+        # Let perception run
+        time.sleep(2)
+        
+        # Verify perceptions are generated
+        assert len(eyesight.perception_stream) > 0
+        
+        # Check perception data structure
+        perception = eyesight.perception_stream[0]
+        assert 'timestamp' in perception
+        assert 'perception' in perception
+        assert 'embedding' in perception
+        assert isinstance(perception['embedding'], np.ndarray)
+
+    @pytest.mark.timeout(5)
+    def test_perception_error_handling(self, eyesight, mock_screen):
+        """Test perception error recovery"""
+        # Simulate errors
+        mock_screen.get_current_frame.side_effect = [
+            None,  # Missing frame
+            Exception("Test error"),  # Error
+            Image.new('RGB', (100, 100))  # Valid frame
+        ]
+        
+        # Should recover and continue perception
+        time.sleep(2)
+        assert len(eyesight.perception_stream) > 0
+
+    def test_perception_performance(self, eyesight, mock_screen):
+        """Test perception performance metrics"""
+        test_frame = Image.new('RGB', (100, 100))
+        mock_screen.get_current_frame.return_value = test_frame
+        
+        # Process multiple frames
+        start_time = time.time()
+        for _ in range(10):
+            eyesight.process_visual_input("analyze", test_frame)
+        end_time = time.time()
+        
+        # Check processing time
+        avg_time = (end_time - start_time) / 10
+        assert avg_time < 0.5  # Each frame under 500ms
+
+    def test_embedding_buffer_management(self, eyesight):
+        """Test embedding buffer size management"""
+        # Fill embedding buffer
+        for _ in range(200):
+            eyesight.embedding_buffer.append({
+                'embedding': np.random.rand(512),
+                'timestamp': time.time()
+            })
+            
+        # Verify buffer size is maintained
+        assert len(eyesight.embedding_buffer) <= eyesight.embedding_buffer.maxlen
