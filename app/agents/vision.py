@@ -18,6 +18,12 @@ from typing import Optional, Dict, Any
 from transformers import CLIPProcessor, CLIPModel
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
+from transformers import Blip2Processor, Blip2ForConditionalGeneration
+import io
+import base64
+from transformers import AutoModelForCausalLM
+from transformers import DetrImageProcessor, DetrForObjectDetection
+import traceback
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -39,12 +45,15 @@ class VisionAgent(BaseAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Initialize InternVL2 for direct image+text understanding
+        # Initialize models
         self._initialize_models()
         
         # Initialize CLIP for multimodal embeddings only
         self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        
+        if torch.cuda.is_available():
+            self.clip_model = self.clip_model.cuda()
         
         # Add transform for InternVL2
         self.transform = self._build_transform(input_size=448)
@@ -66,32 +75,38 @@ class VisionAgent(BaseAgent):
         ])
 
     def _initialize_models(self):
-        """Initialize InternVL2 model for direct image+text understanding"""
+        """Initialize vision models including InternVL2 and DETR"""
         try:
-            path = "OpenGVLab/InternVL2-4B"
-            self.model = AutoModel.from_pretrained(
-                path,
-                torch_dtype=torch.bfloat16,
-                low_cpu_mem_usage=True,
-                use_flash_attn=False,
+            # Initialize InternVL2 on GPU if available
+            model_name = "OpenGVLab/InternVL2-2B"
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,  # Use float16 instead of bfloat16
+                device_map="cuda:0",
                 trust_remote_code=True
-            ).eval()
+            )
             
+            # Move InternVL2 to GPU if available
             if torch.cuda.is_available():
                 self.model = self.model.cuda()
+                logging.info("InternVL2 initialized on GPU")
+            
+            # Initialize DETR for UI element detection
+            self.detr_processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
+            self.detr_model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+            
+            if torch.cuda.is_available():
+                self.detr_model = self.detr_model.cuda()
+                logging.info("DETR initialized on GPU")
                 
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                path, 
-                trust_remote_code=True,
-                use_fast=False
-            )
+            logging.info("Vision models initialized successfully")
             self.model_healthy = True
-            self.last_model_check = time.time()
             
         except Exception as e:
             logging.error(f"Failed to initialize vision models: {e}")
             self.model_healthy = False
-            raise RuntimeError("Vision system initialization failed")
+            raise RuntimeError(f"Vision system initialization failed: {str(e)}")
 
     def _preprocess_image(self, image, max_num=12):
         """Preprocess image for InternVL2"""
@@ -118,9 +133,9 @@ class VisionAgent(BaseAgent):
             pixel_values = torch.stack(pixel_values)
             
             if torch.cuda.is_available():
-                pixel_values = pixel_values.to(torch.bfloat16).cuda()
+                pixel_values = pixel_values.to(torch.float16).cuda()  # Use float16 instead of bfloat16
             else:
-                pixel_values = pixel_values.to(torch.bfloat16)
+                pixel_values = pixel_values.to(torch.float16)  # Use float16 instead of bfloat16
                 
             return pixel_values
             
@@ -212,28 +227,7 @@ class VisionAgent(BaseAgent):
     def understand_scene(self, image, context=None):
         """Direct scene understanding using InternVL2"""
         try:
-            # Ensure image is in correct format
-            if isinstance(image, dict) and 'frame' in image:
-                image = image['frame']
-                
-            # Convert numpy array to PIL Image if needed
-            if isinstance(image, np.ndarray):
-                if len(image.shape) == 2:  # Grayscale
-                    image = Image.fromarray(image, 'L').convert('RGB')
-                elif len(image.shape) == 3:
-                    if image.shape[2] == 4:  # RGBA
-                        image = Image.fromarray(image, 'RGBA').convert('RGB')
-                    else:  # Assume BGR
-                        image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            elif isinstance(image, str):
-                image = Image.open(image).convert('RGB')
-            elif not isinstance(image, Image.Image):
-                raise ValueError(f"Unsupported image type: {type(image)}")
-
-            # Ensure image is RGB
-            image = image.convert('RGB')
-
-            # Preprocess image
+            # Process image
             pixel_values = self._preprocess_image(image)
             
             # Format prompt based on context
@@ -244,7 +238,7 @@ class VisionAgent(BaseAgent):
                 focus = context.get('focus', '')
                 prompt = f"<image>\n{context_str}\nFocus on: {focus}" if focus else f"<image>\n{context_str}"
             else:
-                prompt = "<image>\nDescribe what you see in this image in detail."
+                prompt = "<image>\nDescribe what you see in this image in detail, focusing on UI elements, buttons, and interactive components."
                 
             # Generate response with InternVL2
             generation_config = {
@@ -356,75 +350,292 @@ class VisionAgent(BaseAgent):
 
     def find_element(self, image, target_description, confidence_threshold=0.3):
         """
-        Uses InternVL2 to find precise coordinates of UI elements.
+        Enhanced element finding using InternVL2 understanding and YOLO detection.
+        """
+        try:
+            # First get scene understanding to help identify the target
+            scene_context = self.understand_scene(image, {
+                'question': f"Describe the visual appearance and location of: {target_description}",
+                'focus': 'UI elements and interactive components'
+            })
+            
+            if scene_context['status'] != 'success':
+                logging.warning("Scene understanding failed, proceeding with direct detection")
+            else:
+                # Use scene understanding to enhance target description
+                enhanced_description = scene_context['description']
+                logging.info(f"Enhanced understanding: {enhanced_description}")
+            
+            # Run YOLO detection
+            yolo_results = self.detect_ui_elements(image)
+            
+            if yolo_results['status'] == 'success' and yolo_results['detections']:
+                # Use scene understanding to help filter detections
+                relevant_detections = []
+                
+                for detection in yolo_results['detections']:
+                    # Calculate base confidence from YOLO
+                    base_confidence = detection['confidence']
+                    
+                    # Check if detection matches target description
+                    match_score = self._calculate_match_score(
+                        detection,
+                        target_description,
+                        scene_context.get('description', '')
+                    )
+                    
+                    if match_score > 0:
+                        detection['match_score'] = match_score
+                        detection['final_confidence'] = base_confidence * match_score
+                        relevant_detections.append(detection)
+                
+                # Sort by final confidence
+                relevant_detections.sort(key=lambda x: x['final_confidence'], reverse=True)
+                
+                if relevant_detections and relevant_detections[0]['final_confidence'] >= confidence_threshold:
+                    best_match = relevant_detections[0]
+                    return {
+                        'element_found': True,
+                        'element_details': {
+                            'coordinates': best_match['center'],
+                            'bbox': best_match['bbox'],
+                            'confidence': best_match['final_confidence'],
+                            'description': target_description,
+                            'width': best_match['width'],
+                            'height': best_match['height'],
+                            'area': best_match['area'],
+                            'class': best_match['class']
+                        },
+                        'scene_understanding': scene_context.get('description', ''),
+                        'timestamp': time.time(),
+                        'detector': 'yolo_with_internvl2'
+                    }
+            
+            # If no good matches found
+            return {
+                'element_found': False,
+                'timestamp': time.time(),
+                'error_message': 'No matching elements found',
+                'scene_understanding': scene_context.get('description', '')
+            }
+            
+        except Exception as e:
+            logging.error(f"Error finding element: {e}")
+            return {
+                'element_found': False,
+                'timestamp': time.time(),
+                'error_message': str(e)
+            }
+
+    def _calculate_match_score(self, detection, target_description, scene_understanding):
+        """
+        Calculate how well a detection matches the target description.
+        
+        Args:
+            detection: Dictionary containing detection details
+            target_description: Original target description
+            scene_understanding: InternVL2's scene understanding
+            
+        Returns:
+            float: Match score between 0 and 1
+        """
+        score = 0.0
+        
+        # Convert all text to lowercase for comparison
+        target_words = set(target_description.lower().split())
+        class_words = set(detection['class'].lower().split())
+        scene_words = set(scene_understanding.lower().split())
+        
+        # Check direct class match
+        common_class_words = target_words.intersection(class_words)
+        if common_class_words:
+            score += len(common_class_words) / len(target_words) * 0.6
+        
+        # Check scene understanding match
+        target_in_scene = any(word in scene_understanding.lower() for word in target_words)
+        if target_in_scene:
+            score += 0.4
+            
+            # Check if detection location matches scene description
+            location_keywords = ['top', 'bottom', 'left', 'right', 'center', 'middle']
+            for keyword in location_keywords:
+                if keyword in scene_understanding.lower() and self._check_position_match(detection, keyword):
+                    score += 0.2
+                    break
+        
+        return min(score, 1.0)  # Cap score at 1.0
+
+    def _check_position_match(self, detection, position_keyword):
+        """Check if detection position matches the described position"""
+        center_x, center_y = detection['center']
+        width, height = detection['width'], detection['height']
+        
+        # Get image dimensions from detection bbox
+        x1, y1, x2, y2 = detection['bbox']
+        img_width = x2 - x1 + width
+        img_height = y2 - y1 + height
+        
+        # Check position match
+        if position_keyword == 'top' and center_y < img_height * 0.33:
+            return True
+        elif position_keyword == 'bottom' and center_y > img_height * 0.67:
+            return True
+        elif position_keyword == 'left' and center_x < img_width * 0.33:
+            return True
+        elif position_keyword == 'right' and center_x > img_width * 0.67:
+            return True
+        elif position_keyword in ['center', 'middle']:
+            return (0.33 < center_x/img_width < 0.67) and (0.33 < center_y/img_height < 0.67)
+        
+        return False
+
+    def detect_ui_elements(self, image, query=None, similarity_threshold=0.5):
+        """
+        Detect UI elements using DETR with CLIP-based query filtering.
         
         Args:
             image: Input image
-            target_description: Description of element to find
-            confidence_threshold: Minimum confidence score
-            
-        Returns:
-            dict: Element info including coordinates and confidence
+            query: Optional text query to filter elements
+            similarity_threshold: Threshold for CLIP similarity (default 0.5)
         """
         try:
-            # Process image
-            processed_image = self._validate_and_process_image(image)
-            pixel_values = self._preprocess_image(processed_image)
+            # Convert image to PIL if needed
+            image_pil = self._validate_and_process_image(image)
+
+            # Process image with DETR
+            inputs = self.detr_processor(images=image_pil, return_tensors="pt")
             
-            # Format specific prompt to get bounding box coordinates
-            prompt = f"""<image>
-Find the exact bounding box coordinates of: {target_description}
-Return only the coordinates in format:
-x1: [left coordinate], y1: [top coordinate], x2: [right coordinate], y2: [bottom coordinate]
-If the element is not found, return "not found"."""
-            
-            # Generate response with InternVL2
-            generation_config = {
-                'max_new_tokens': 128,
-                'do_sample': False,  # We want deterministic output for coordinates
-                'temperature': 0.1   # Low temperature for precise answers
-            }
-            
-            response = self.model.chat(
-                self.tokenizer,
-                pixel_values,
-                prompt,
-                generation_config
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+                self.detr_model = self.detr_model.cuda()
+
+            # Get DETR predictions
+            with torch.no_grad():
+                outputs = self.detr_model(**inputs)
+                
+                # Process DETR outputs
+                probas = outputs.logits.softmax(-1)[0, :, :-1]
+                keep = probas.max(-1).values > 0.5  # Confidence threshold
+                
+                # Convert boxes to image coordinates
+                boxes = outputs.pred_boxes[0, keep].cpu()
+                scores = probas[keep].max(-1).values.cpu()
+
+            # If no query, return all detected elements
+            if not query:
+                return self._process_detections(image_pil, boxes, scores)
+
+            # Process query with CLIP
+            text_inputs = self.clip_processor(
+                text=[query], 
+                return_tensors="pt", 
+                padding=True
             )
-            
-            # Parse coordinates from response
-            coords = self._parse_coordinates(response)
-            if coords:
-                x1, y1, x2, y2 = coords
+            if torch.cuda.is_available():
+                text_inputs = {k: v.cuda() for k, v in text_inputs.items()}
                 
-                # Validate coordinates are within image bounds
-                img_width, img_height = processed_image.size
-                if not (0 <= x1 < x2 <= img_width and 0 <= y1 < y2 <= img_height):
-                    logging.warning(f"Invalid coordinates detected: {coords}")
-                    return None
+            with torch.no_grad():
+                text_features = self.clip_model.get_text_features(**text_inputs)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+            # Process each region with CLIP
+            matched_elements = []
+            for box, score in zip(boxes, scores):
+                # Extract region
+                x1, y1, x2, y2 = box.tolist()
+                region = image_pil.crop((x1, y1, x2, y2))
                 
-                center_x = int((x1 + x2) / 2)
-                center_y = int((y1 + y2) / 2)
-                
-                # Calculate confidence based on response clarity
-                confidence = 1.0 if "not found" not in response.lower() else 0.0
-                
-                return {
-                    'coordinates': (center_x, center_y),
-                    'bbox': (x1, y1, x2, y2),
-                    'confidence': confidence,
-                    'description': target_description,
-                    'width': x2 - x1,
-                    'height': y2 - y1,
-                    'area': (x2 - x1) * (y2 - y1),
-                    'timestamp': time.time()
-                }
+                # Get CLIP embedding for region
+                region_inputs = self.clip_processor(
+                    images=region, 
+                    return_tensors="pt"
+                )
+                if torch.cuda.is_available():
+                    region_inputs = {k: v.cuda() for k, v in region_inputs.items()}
                     
-            return None
+                with torch.no_grad():
+                    image_features = self.clip_model.get_image_features(**region_inputs)
+                    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                    
+                    # Calculate similarity
+                    similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+                    
+                    if similarity.item() > similarity_threshold:
+                        matched_elements.append({
+                            'bbox': (int(x1), int(y1), int(x2), int(y2)),
+                            'confidence': score.item() * similarity.item(),
+                            'similarity': similarity.item(),
+                            'center': (int((x1 + x2) / 2), int((y1 + y2) / 2)),
+                            'width': int(x2 - x1),
+                            'height': int(y2 - y1),
+                            'area': int((x2 - x1) * (y2 - y1))
+                        })
+
+            # Sort by combined confidence
+            matched_elements.sort(key=lambda x: x['confidence'], reverse=True)
+
+            return {
+                'status': 'success',
+                'detections': matched_elements,
+                'query': query,
+                'timestamp': time.time(),
+                'image_size': image_pil.size
+            }
 
         except Exception as e:
-            logging.error(f"Error finding element: {e}")
-            return None
+            logging.error(f"Error in UI element detection: {e}")
+            logging.debug(f"Stack trace: {traceback.format_exc()}")
+            return {
+                'status': 'error',
+                'message': str(e),
+                'timestamp': time.time()
+            }
+
+    def _process_detections(self, image, boxes, scores):
+        """Process DETR detections into standardized format"""
+        elements = []
+        for box, score in zip(boxes, scores):
+            x1, y1, x2, y2 = box.tolist()
+            elements.append({
+                'bbox': (int(x1), int(y1), int(x2), int(y2)),
+                'confidence': score.item(),
+                'center': (int((x1 + x2) / 2), int((y1 + y2) / 2)),
+                'width': int(x2 - x1),
+                'height': int(y2 - y1),
+                'area': int((x2 - x1) * (y2 - y1))
+            })
+        
+        return {
+            'status': 'success',
+            'detections': elements,
+            'timestamp': time.time(),
+            'image_size': image.size
+        }
+
+    def _check_position_match(self, detection, scene_desc):
+        """Enhanced position matching using scene description"""
+        desc_lower = scene_desc.lower()
+        center_x, center_y = detection['center']
+        width, height = detection['width'], detection['height']
+        
+        # Get image dimensions from detection bbox
+        x1, y1, x2, y2 = detection['bbox']
+        img_width = x2 - x1 + width
+        img_height = y2 - y1 + height
+        
+        # Check various position descriptions
+        if 'top' in desc_lower and center_y < img_height * 0.33:
+            return True
+        if 'bottom' in desc_lower and center_y > img_height * 0.67:
+            return True
+        if 'left' in desc_lower and center_x < img_width * 0.33:
+            return True
+        if 'right' in desc_lower and center_x > img_width * 0.67:
+            return True
+        if any(pos in desc_lower for pos in ['center', 'middle', 'middle of']):
+            return (0.33 < center_x/img_width < 0.67) and (0.33 < center_y/img_height < 0.67)
+            
+        return False
 
     def _parse_coordinates(self, response):
         """
@@ -618,5 +829,3 @@ If the element is not found, return "not found"."""
             return 0.0
             
         return len(common_words) / len(target_words)
-
-

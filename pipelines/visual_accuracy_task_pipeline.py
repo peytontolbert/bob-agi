@@ -13,11 +13,13 @@ from pipelines.visual_accuracy_pipeline import VisualAccuracyPipeline, Detection
 class TaskStep:
     """Represents a step in the task pipeline"""
     description: str
-    element_identifier: str
+    element_identifiers: List[str]  # Multiple ways to identify the element
+    visual_cues: List[str]  # Visual characteristics to look for
     action: str  # click, type, wait
-    expected_next: str
+    expected_next: List[str]  # Multiple possible next states
     timeout: float = 10.0
     retry_count: int = 3
+    confidence_threshold: float = 0.7
 
 class DiscordVoiceChannelPipeline:
     def __init__(self, vision_agent, eyes, hands):
@@ -25,49 +27,250 @@ class DiscordVoiceChannelPipeline:
         self.hands = hands
         self.eyes = eyes
         
-        # Configure task steps
+        # Configure task steps with more detailed element identification
         self.task_steps = [
             TaskStep(
                 description="Find Continue in Browser button",
-                element_identifier="Continue in browser link or button",
+                element_identifiers=[
+                    "Continue in browser",
+                    "Open Discord in your browser",
+                    "Use Discord in browser"
+                ],
+                visual_cues=[
+                    "blue button",
+                    "clickable link",
+                    "text with browser icon"
+                ],
                 action="click",
-                expected_next="Discord login page",
-                timeout=5.0
+                expected_next=[
+                    "Discord login page",
+                    "Login with Discord",
+                    "Welcome back to Discord"
+                ],
+                timeout=5.0,
+                confidence_threshold=0.65
             ),
             TaskStep(
                 description="Find and click login button",
-                element_identifier="Login button",
-                action="click", 
-                expected_next="Discord main interface",
-                timeout=8.0
+                element_identifiers=[
+                    "Login",
+                    "Login with Discord",
+                    "Log In",
+                    "Sign In"
+                ],
+                visual_cues=[
+                    "blue login button",
+                    "prominent button at center",
+                    "login form submit button"
+                ],
+                action="click",
+                expected_next=[
+                    "Discord main interface",
+                    "Server list",
+                    "Discord channels"
+                ],
+                timeout=8.0,
+                confidence_threshold=0.75
             ),
             TaskStep(
                 description="Locate Agora server",
-                element_identifier="Agora server icon or name",
+                element_identifiers=[
+                    "Agora server",
+                    "Agora",
+                    "Agora Discord server"
+                ],
+                visual_cues=[
+                    "server icon on left sidebar",
+                    "server name or logo",
+                    "Agora community server"
+                ],
                 action="click",
-                expected_next="Agora server channels",
+                expected_next=[
+                    "Agora server channels",
+                    "Agora server content",
+                    "Voice channels list"
+                ],
                 timeout=5.0
             ),
             TaskStep(
                 description="Find Voice Channels section",
-                element_identifier="Voice Channels heading or section",
+                element_identifiers=[
+                    "Voice Channels",
+                    "VOICE CHANNELS",
+                    "Voice"
+                ],
+                visual_cues=[
+                    "channel category header",
+                    "expandable section",
+                    "voice channel list"
+                ],
                 action="wait",
-                expected_next="Voice channel list",
+                expected_next=[
+                    "Voice channel list",
+                    "Available voice channels",
+                    "Voice chat options"
+                ],
                 timeout=3.0
             ),
             TaskStep(
                 description="Join Agora voice channel",
-                element_identifier="Agora voice channel",
+                element_identifiers=[
+                    "Agora Voice",
+                    "General Voice",
+                    "Voice Chat"
+                ],
+                visual_cues=[
+                    "speaker icon",
+                    "voice channel entry",
+                    "joinable voice channel"
+                ],
                 action="click",
-                expected_next="Connected to voice",
+                expected_next=[
+                    "Connected to voice",
+                    "Voice connected",
+                    "In voice channel"
+                ],
                 timeout=5.0
             )
         ]
         
-        # Initialize results tracking
         self.results = []
         self.current_step = 0
+
+    def _find_element_with_pipeline(self, step: TaskStep) -> Optional[DetectionResult]:
+        """
+        Uses visual accuracy pipeline to find element with multiple attempts and strategies.
+        """
+        best_result = None
+        highest_confidence = 0
         
+        # Try each identifier with visual cues
+        for identifier in step.element_identifiers:
+            for visual_cue in step.visual_cues:
+                try:
+                    # Combine identifier and visual cue for better targeting
+                    search_query = f"{identifier} - {visual_cue}"
+                    
+                    # Use visual accuracy pipeline to find element
+                    result = self.vision_pipeline.find_element_with_retry(
+                        search_query,
+                        confidence_threshold=step.confidence_threshold,
+                        max_retries=2
+                    )
+                    
+                    if result and result.confidence > highest_confidence:
+                        highest_confidence = result.confidence
+                        best_result = result
+                        
+                        # If confidence is very high, return immediately
+                        if highest_confidence > 0.9:
+                            return best_result
+                            
+                except Exception as e:
+                    logging.warning(f"Error finding element with {search_query}: {e}")
+                    continue
+                    
+        return best_result if highest_confidence >= step.confidence_threshold else None
+
+    def _execute_step(self, step: TaskStep) -> Dict[str, Any]:
+        """
+        Executes a single step with enhanced element detection and verification.
+        """
+        start_time = time.time()
+        
+        for attempt in range(step.retry_count):
+            try:
+                # Find element using visual accuracy pipeline
+                detection_result = self._find_element_with_pipeline(step)
+                
+                if not detection_result:
+                    if attempt < step.retry_count - 1:
+                        logging.warning(f"Element not found, attempt {attempt + 1}/{step.retry_count}")
+                        time.sleep(1.0)
+                        continue
+                    return {
+                        'success': False,
+                        'step': step.description,
+                        'error_message': f"Element not found after {step.retry_count} attempts",
+                        'time_taken': time.time() - start_time
+                    }
+                
+                # Execute action based on type
+                if step.action == "click":
+                    click_success = self.hands.click_element(detection_result.coordinates)
+                    
+                    if not click_success:
+                        if attempt < step.retry_count - 1:
+                            logging.warning(f"Click failed, attempt {attempt + 1}/{step.retry_count}")
+                            time.sleep(1.0)
+                            continue
+                        return {
+                            'success': False,
+                            'step': step.description,
+                            'error_message': "Click action failed",
+                            'time_taken': time.time() - start_time
+                        }
+                
+                # Verify next state with multiple possible states
+                if not self._verify_next_state(step.expected_next, step.timeout):
+                    if attempt < step.retry_count - 1:
+                        logging.warning(f"Next state verification failed, attempt {attempt + 1}/{step.retry_count}")
+                        time.sleep(1.0)
+                        continue
+                    return {
+                        'success': False,
+                        'step': step.description,
+                        'error_message': "Failed to verify next state",
+                        'time_taken': time.time() - start_time
+                    }
+                
+                return {
+                    'success': True,
+                    'step': step.description,
+                    'time_taken': time.time() - start_time,
+                    'detection_confidence': detection_result.confidence,
+                    'element_location': detection_result.coordinates
+                }
+                
+            except Exception as e:
+                if attempt < step.retry_count - 1:
+                    logging.warning(f"Step execution failed, attempt {attempt + 1}/{step.retry_count}: {e}")
+                    time.sleep(1.0)
+                    continue
+                return {
+                    'success': False,
+                    'step': step.description,
+                    'error_message': str(e),
+                    'time_taken': time.time() - start_time
+                }
+
+    def _verify_next_state(self, expected_states: List[str], timeout: float) -> bool:
+        """
+        Verifies any of the expected next states is reached.
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            # Try to verify each possible next state
+            for expected_state in expected_states:
+                try:
+                    # Use visual accuracy pipeline to verify state
+                    verification_result = self.vision_pipeline.verify_screen_state(
+                        expected_state,
+                        confidence_threshold=0.6  # Lower threshold for state verification
+                    )
+                    
+                    if verification_result.success:
+                        return True
+                        
+                except Exception as e:
+                    logging.debug(f"Error verifying state {expected_state}: {e}")
+                    continue
+                    
+            time.sleep(0.5)
+            
+        return False
+
     def execute_pipeline(self) -> Dict[str, Any]:
         """
         Executes the full pipeline to join Discord voice channel.
@@ -118,117 +321,6 @@ class DiscordVoiceChannelPipeline:
             self._save_pipeline_results(pipeline_results)
             
         return pipeline_results
-
-    def _execute_step(self, step: TaskStep) -> Dict[str, Any]:
-        """
-        Executes a single step in the pipeline with retries.
-        
-        Args:
-            step: TaskStep to execute
-            
-        Returns:
-            Dict containing step execution results
-        """
-        start_time = time.time()
-        
-        for attempt in range(step.retry_count):
-            try:
-                # Find the element
-                detection_result = self.vision_pipeline.analyze_scene_and_find_element(
-                    step.element_identifier
-                )
-                
-                if not detection_result.get('element_found'):
-                    if attempt < step.retry_count - 1:
-                        logging.warning(f"Element not found, attempt {attempt + 1}/{step.retry_count}")
-                        time.sleep(1.0)
-                        continue
-                    return {
-                        'success': False,
-                        'step': step.description,
-                        'error_message': f"Element not found after {step.retry_count} attempts",
-                        'time_taken': time.time() - start_time
-                    }
-                
-                # Execute the action
-                if step.action == "click":
-                    element_details = detection_result['element_details']
-                    click_success = self.hands.click_element(element_details)
-                    
-                    if not click_success:
-                        if attempt < step.retry_count - 1:
-                            logging.warning(f"Click failed, attempt {attempt + 1}/{step.retry_count}")
-                            time.sleep(1.0)
-                            continue
-                        return {
-                            'success': False,
-                            'step': step.description,
-                            'error_message': "Click action failed",
-                            'time_taken': time.time() - start_time
-                        }
-                
-                # Verify expected next state
-                if not self._verify_next_state(step.expected_next, step.timeout):
-                    if attempt < step.retry_count - 1:
-                        logging.warning(f"Next state verification failed, attempt {attempt + 1}/{step.retry_count}")
-                        time.sleep(1.0)
-                        continue
-                    return {
-                        'success': False,
-                        'step': step.description,
-                        'error_message': "Failed to verify next state",
-                        'time_taken': time.time() - start_time
-                    }
-                
-                return {
-                    'success': True,
-                    'step': step.description,
-                    'time_taken': time.time() - start_time,
-                    'detection_confidence': detection_result.get('confidence', 0)
-                }
-                
-            except Exception as e:
-                if attempt < step.retry_count - 1:
-                    logging.warning(f"Step execution failed, attempt {attempt + 1}/{step.retry_count}: {e}")
-                    time.sleep(1.0)
-                    continue
-                return {
-                    'success': False,
-                    'step': step.description,
-                    'error_message': str(e),
-                    'time_taken': time.time() - start_time
-                }
-                
-        return {
-            'success': False,
-            'step': step.description,
-            'error_message': "Max retries exceeded",
-            'time_taken': time.time() - start_time
-        }
-
-    def _verify_next_state(self, expected_state: str, timeout: float) -> bool:
-        """
-        Verifies the next expected state is reached.
-        
-        Args:
-            expected_state: Description of expected state
-            timeout: Maximum time to wait for state
-            
-        Returns:
-            bool: True if expected state is reached
-        """
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            # Get current scene understanding
-            scene_result = self.vision_pipeline.analyze_scene_and_find_element(expected_state)
-            
-            if scene_result.get('element_found'):
-                return True
-                
-            time.sleep(0.5)
-            
-        return False
 
     def _save_pipeline_results(self, results: Dict[str, Any]):
         """Saves pipeline execution results"""

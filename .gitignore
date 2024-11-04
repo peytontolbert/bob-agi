@@ -7,5 +7,6 @@ __pycache__/
 *.log
 *.pt
 models/
+weights/
 *.mp3
 *.wav
