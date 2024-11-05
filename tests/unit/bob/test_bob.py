@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from app.bob.bob import Bob
-from app.actions.hearing import Hearing
-from app.actions.eyesight import Eyesight
+from app.env.senses.hearing import Hearing
+from app.env.senses.eyesight import Eyesight
 from app.actions.thinking import Thinking
 from app.actions.hands import Hands
 from app.actions.voice import Voice

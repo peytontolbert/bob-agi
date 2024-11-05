@@ -10,3 +10,4 @@ models/
 weights/
 *.mp3
 *.wav
+OmniParser/

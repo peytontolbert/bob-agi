@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image
 import numpy as np
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 from app.env.screen import Screen
 
 class TestEyesightIntegration:

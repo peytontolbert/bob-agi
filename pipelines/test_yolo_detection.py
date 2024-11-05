@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 import time
 from app.env.computer import Computer
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 
 class YOLODetectionTest:
     def __init__(self):

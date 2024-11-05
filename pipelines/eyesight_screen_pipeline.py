@@ -7,7 +7,7 @@ from PIL import Image
 import numpy as np
 import cv2
 from app.env.computer import Computer
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 import os
 
 logging.basicConfig(level=logging.INFO)

@@ -2,7 +2,7 @@ import pytest
 import time
 from unittest.mock import Mock
 from app.agents.vision import VisionAgent 
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 from app.env.computer import Computer
 from app.env.browser import Browser
 from app.env.screen import Screen

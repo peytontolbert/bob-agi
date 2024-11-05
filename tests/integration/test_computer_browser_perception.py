@@ -2,7 +2,7 @@ import pytest
 from PIL import Image
 from app.env.computer import Computer
 from app.agents.vision import VisionAgent
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 import asyncio
 import logging
 

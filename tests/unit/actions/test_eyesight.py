@@ -38,7 +38,7 @@ class TestEyesight:
     def eyesight(self, screen):
         """Initialize Eyesight with real screen and vision system"""
         try:
-            from app.actions.eyesight import Eyesight
+            from app.env.senses.eyesight import Eyesight
             eye = Eyesight(screen)
             yield eye
             if hasattr(eye, 'cleanup'):

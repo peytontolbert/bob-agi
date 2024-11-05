@@ -603,7 +603,7 @@ if __name__ == "__main__":
     from app.agents.vision import VisionAgent
     from app.env.screen import Screen
     from app.env.computer import Computer
-    from app.actions.eyesight import Eyesight
+    from app.env.senses.eyesight import Eyesight
     from app.actions.hands import Hands
     from app.agents.text import TextAgent
     import logging

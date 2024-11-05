@@ -9,7 +9,7 @@ from PIL import Image
 import os
 from app.env.computer import Computer
 from app.env.screen import Screen
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 from app.agents.vision import VisionAgent
 import cv2
 

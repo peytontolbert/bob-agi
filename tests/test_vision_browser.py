@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from app.actions.eyesight import Eyesight
+from app.env.senses.eyesight import Eyesight
 from app.env.screen import Screen
 from app.env.browser import Browser
 from app.agents.vision import VisionAgent

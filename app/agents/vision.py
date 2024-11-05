@@ -28,6 +28,8 @@ import re
 import tempfile
 import supervision
 from PIL import ImageDraw
+from app.models.omniparser import OmniParser
+from app.models.qwenvl import QwenVL
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -61,16 +63,16 @@ class VisionAgent(BaseAgent):
         # Initialize models
         self._initialize_models()
         
-        # Initialize OmniParser model
-        self.som_model = self._load_som_model()
+        # Initialize OmniParser and QwenVL
+        self.omniparser = OmniParser()
+        self.qwenvl = QwenVL()
         
-        # Keep existing CLIP initialization
+        # Initialize CLIP
         self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         
         if torch.cuda.is_available():
             self.clip_model = self.clip_model.cuda()
-            self.som_model.to('cuda')
         
         # Add transform for InternVL2
         self.transform = self._build_transform(input_size=448)
@@ -242,58 +244,7 @@ class VisionAgent(BaseAgent):
 
     def understand_scene(self, image, context=None):
         """Direct scene understanding using Qwen-VL"""
-        try:
-            # Process image - ensure it's a PIL Image
-            if isinstance(image, np.ndarray):
-                image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            elif not isinstance(image, Image.Image):
-                raise ValueError(f"Unsupported image type: {type(image)}")
-
-            # Save image to temporary file
-            image_path = self._save_image_to_temp(image)
-
-            # Format prompt based on context
-            if context and isinstance(context, str):
-                prompt = context
-            elif context and isinstance(context, dict):
-                context_str = context.get('question', '')
-                focus = context.get('focus', '')
-                prompt = f"{context_str}\nFocus on: {focus}" if focus else context_str
-            else:
-                prompt = "Describe what you see in this image in detail, focusing on UI elements, buttons, and interactive components."
-
-            # Create query format for Qwen-VL
-            query = self.tokenizer.from_list_format([
-                {'image': image_path},  # Use image path instead of PIL Image
-                {'text': prompt}
-            ])
-
-            # Get response from Qwen-VL
-            response, _ = self.model.chat(
-                self.tokenizer,
-                query=query,
-                history=None
-            )
-
-            # Clean up temporary file
-            try:
-                os.remove(image_path)
-            except:
-                pass
-
-            return {
-                'status': 'success',
-                'description': response,
-                'timestamp': time.time()
-            }
-            
-        except Exception as e:
-            logging.error(f"Scene understanding error: {e}")
-            return {
-                'status': 'error',
-                'message': str(e),
-                'fallback_description': 'Unable to analyze image content'
-            }
+        return self.qwenvl.understand_scene(image, context)
 
     def get_visual_embedding(self, image):
         """Get CLIP embedding for multimodal processing"""
@@ -375,225 +326,9 @@ class VisionAgent(BaseAgent):
             'fallback_description': 'Unable to analyze image content'
         }
 
-    def _parse_coordinates(self, response: str) -> Optional[Tuple[int, int, int, int]]:
-        """
-        Parse coordinates from Qwen-VL response.
-        """
-        try:
-            # Match Qwen-VL format: <box>(x1,y1),(x2,y2)</box>
-            box_pattern = r'<box>\((\d+),(\d+)\),\((\d+),(\d+)\)</box>'
-            match = re.search(box_pattern, response)
-            
-            if match:
-                coords = tuple(map(int, match.groups()))
-                if self._validate_coordinates(coords):
-                    return coords
-                    
-            return None
-
-        except Exception as e:
-            logging.error(f"Error parsing coordinates: {e}")
-            logging.error(f"Response was: {response}")
-            return None
-
     def detect_ui_elements(self, image, query=None):
         """Detect UI elements using OmniParser"""
-        try:
-            # Ensure image is PIL Image
-            if isinstance(image, np.ndarray):
-                image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            elif not isinstance(image, Image.Image):
-                raise ValueError(f"Unsupported image type: {type(image)}")
-
-            # Save image to temporary file for OCR processing
-            image_path = self._save_image_to_temp(image)
-
-            # Get OCR results
-            ocr_bbox_rslt, is_goal_filtered = self._check_ocr_box(
-                image_path, 
-                display_img=False, 
-                output_bb_format='xyxy'
-            )
-            text, ocr_bbox = ocr_bbox_rslt
-
-            # Run OmniParser detection
-            labeled_img, label_coordinates, parsed_content = self._get_som_labeled_img(
-                image_path,
-                self.som_model,
-                BOX_THRESHOLD,
-                ocr_bbox=ocr_bbox,
-                draw_bbox_config=DRAW_BBOX_CONFIG,
-                ocr_text=text
-            )
-
-            # Convert detections to our format
-            detections = []
-            for element in parsed_content:
-                x1, y1, x2, y2 = element['bbox']
-                center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2
-                
-                detection = {
-                    'type': element['label'],
-                    'coordinates': (center_x, center_y),
-                    'bbox': (x1, y1, x2, y2),
-                    'description': element.get('text', ''),
-                    'width': x2 - x1,
-                    'height': y2 - y1,
-                    'confidence': element.get('confidence', 0.0)
-                }
-                detections.append(detection)
-
-            # Clean up temp file
-            try:
-                os.remove(image_path)
-            except:
-                pass
-
-            return {
-                'status': 'success',
-                'detections': detections,
-                'labeled_image': labeled_img,
-                'raw_parsed_content': parsed_content,
-                'timestamp': time.time()
-            }
-
-        except Exception as e:
-            logging.error(f"Error in UI element detection: {e}")
-            logging.error(traceback.format_exc())
-            return {
-                'status': 'error',
-                'message': str(e),
-                'timestamp': time.time()
-            }
-
-    def _check_ocr_box(self, image_path, display_img=False, output_bb_format='xyxy'):
-        """Wrapper for OmniParser's OCR box checking"""
-        # Import OmniParser utils here or implement OCR logic
-        try:
-            import easyocr
-            reader = easyocr.Reader(['en'])
-            result = reader.readtext(image_path)
-            
-            text = []
-            boxes = []
-            
-            for detection in result:
-                bbox = detection[0]  # Get bounding box coordinates
-                text_content = detection[1]  # Get text content
-                
-                # Convert to xyxy format if needed
-                if output_bb_format == 'xyxy':
-                    x1 = min(bbox[0][0], bbox[2][0])
-                    y1 = min(bbox[0][1], bbox[2][1])
-                    x2 = max(bbox[0][0], bbox[2][0])
-                    y2 = max(bbox[0][1], bbox[2][1])
-                    boxes.append([x1, y1, x2, y2])
-                else:
-                    boxes.append(bbox)
-                    
-                text.append(text_content)
-                
-            return (text, boxes), False
-            
-        except Exception as e:
-            logging.error(f"Error in OCR processing: {e}")
-            return ([], []), False
-
-    def _get_som_labeled_img(self, image_path, model, box_threshold, ocr_bbox=None, 
-                           draw_bbox_config=None, ocr_text=None):
-        """Run OmniParser's SOM model detection"""
-        try:
-            # Run YOLO detection
-            results = model(image_path)[0]
-            
-            # Process results
-            boxes = results.boxes.cpu().numpy()
-            class_ids = boxes.cls
-            conf = boxes.conf
-            xyxy = boxes.xyxy
-            
-            # Convert to list of dictionaries
-            parsed_content = []
-            for i in range(len(class_ids)):
-                if conf[i] > box_threshold:
-                    element = {
-                        'label': results.names[int(class_ids[i])],
-                        'bbox': xyxy[i].tolist(),
-                        'confidence': float(conf[i])
-                    }
-                    
-                    # Add OCR text if available
-                    if ocr_text and ocr_bbox:
-                        # Find overlapping OCR text
-                        element['text'] = self._find_overlapping_text(
-                            element['bbox'], 
-                            ocr_bbox, 
-                            ocr_text
-                        )
-                        
-                    parsed_content.append(element)
-            
-            # Create labeled image
-            image = Image.open(image_path)
-            labeled_img = self._draw_detections(image, parsed_content, draw_bbox_config)
-            
-            return labeled_img, xyxy, parsed_content
-            
-        except Exception as e:
-            logging.error(f"Error in SOM detection: {e}")
-            raise
-
-    def _find_overlapping_text(self, element_bbox, ocr_boxes, ocr_text):
-        """Find OCR text that overlaps with detected element"""
-        def calculate_iou(box1, box2):
-            x1 = max(box1[0], box2[0])
-            y1 = max(box1[1], box2[1])
-            x2 = min(box1[2], box2[2])
-            y2 = min(box1[3], box2[3])
-            
-            if x2 < x1 or y2 < y1:
-                return 0.0
-                
-            intersection = (x2 - x1) * (y2 - y1)
-            box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-            box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-            
-            return intersection / (box1_area + box2_area - intersection)
-
-        overlapping_text = []
-        for bbox, text in zip(ocr_boxes, ocr_text):
-            if calculate_iou(element_bbox, bbox) > 0.5:
-                overlapping_text.append(text)
-                
-        return ' '.join(overlapping_text)
-
-    def _draw_detections(self, image, detections, config):
-        """Draw bounding boxes and labels on image"""
-        draw = ImageDraw.Draw(image)
-        
-        for det in detections:
-            bbox = det['bbox']
-            label = det['label']
-            conf = det['confidence']
-            text = det.get('text', '')
-            
-            # Draw box
-            draw.rectangle(bbox, outline='red', width=config['thickness'])
-            
-            # Draw label
-            label_text = f"{label} ({conf:.2f})"
-            if text:
-                label_text += f": {text}"
-                
-            draw.text((bbox[0], bbox[1] - 20), label_text, fill='red')
-            
-        # Convert to base64
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        
-        return img_str
+        return self.omniparser.detect_elements(image, query)
 
     def _generate_detection_prompt(self, query):
         """
@@ -687,23 +422,23 @@ Remember to be precise with coordinate values and ensure they define a valid bou
             # Process image to correct format
             processed_image = self._validate_and_process_image(image)
             
-            # Use InternVL2 for focused element detection
-            prompt = f"""Find {target_description}"""
+            # Generate focused prompt
+            prompt = self.qwenvl.generate_detection_prompt(target_description)
             
-            detection_result = self.understand_scene(processed_image, prompt)
-            print(detection_result)
+            # Get scene understanding
+            detection_result = self.qwenvl.understand_scene(processed_image, prompt)
+            
             # Parse coordinates from response
-            coordinates = self._parse_coordinates(detection_result.get('description', ''))
+            coordinates = self.qwenvl.parse_coordinates(detection_result.get('description', ''))
             
             if coordinates:
                 x1, y1, x2, y2 = coordinates
                 center_x = (x1 + x2) // 2
                 center_y = (y1 + y2) // 2
                 
-                # Create properly formatted element dictionary
                 element_dict = {
                     'type': 'ui_element',
-                    'coordinates': (center_x, center_y),  # Center coordinates for clicking
+                    'coordinates': (center_x, center_y),
                     'bbox': (x1, y1, x2, y2),
                     'description': target_description,
                     'width': x2 - x1,
