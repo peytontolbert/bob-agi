@@ -1,61 +1,141 @@
-# Visual Perception Pipeline
+# Visual Perception and Interaction Pipelines
 
-This pipeline tests Bob's visual perception capabilities by running a series of perception tests on the computer screen environment.
+This directory contains test pipelines that validate Bob's visual perception and interaction capabilities across different scenarios.
 
-## Overview
+## Pipeline Overview
 
-The pipeline validates:
-1. Basic screen capture and perception
-2. Element detection and location
-3. Visual embedding generation
-4. Scene understanding
-5. Visual memory and recall
-6. Real-time perception stream
+The pipelines validate different aspects of the system:
+
+1. **Visual Perception Pipeline**
+   - Basic screen capture and perception
+   - Element detection and location
+   - Visual embedding generation
+   - Scene understanding
+   - Visual memory and recall
+   - Real-time perception stream
+
+2. **Eyesight Screen Pipeline**
+   - Screen capture integration
+   - Frame buffer management
+   - Eyesight processing accuracy
+   - Real-time performance metrics
+
+3. **Visual Accuracy Pipeline**
+   - Element detection precision
+   - Click-point accuracy
+   - Multi-turn visual conversation
+   - Visual state verification
+   - Error recovery strategies
+
+4. **Discord Voice Channel Pipeline**
+   - Task-based visual navigation
+   - UI element interaction
+   - State transition validation
+   - Pipeline metrics and monitoring
+   - Error handling and recovery
 
 ## Usage
 
-Run the pipeline with:
+Run individual pipelines with:
 
 ```bash
+# Visual perception tests
 python -m pipelines.visual_perception_pipeline
+
+# Screen capture tests
+python -m pipelines.eyesight_screen_pipeline
+
+# Accuracy tests
+python -m pipelines.visual_accuracy_pipeline
+
+# Task automation tests
+python -m pipelines.visual_accuracy_task_pipeline
 ```
 
-## Test Scenarios
+## Pipeline Architecture
 
-The pipeline runs through several test scenarios:
+Each pipeline follows a common structure:
 
-1. **Basic Perception Test**
-   - Captures screen state
-   - Validates frame format
-   - Tests basic scene understanding
+1. **Initialization**
+   - Component setup (vision, eyes, hands)
+   - Metrics initialization
+   - Debug/logging configuration
 
-2. **Element Detection Test**  
-   - Finds specific UI elements
-   - Validates coordinate accuracy
-   - Tests element description matching
+2. **Execution Flow**
+   - Step-by-step validation
+   - Error handling and recovery
+   - State verification
+   - Performance monitoring
 
-3. **Visual Memory Test**
-   - Generates and stores embeddings
-   - Tests similarity search
-   - Validates temporal perception
+3. **Results & Metrics**
+   - Success/failure tracking
+   - Timing measurements
+   - Accuracy metrics
+   - Debug artifacts
 
-4. **Real-time Processing Test**
-   - Tests continuous perception stream
-   - Validates frame processing rate
-   - Checks embedding generation speed
+## Debug Output
 
-## Expected Output
+Pipelines generate detailed debug output:
+- Test execution logs
+- Performance metrics
+- Error reports
+- Debug visualizations
+- State transition data
 
-The pipeline will output test results including:
-- Perception accuracy metrics
-- Processing speed measurements  
-- Memory retrieval success rate
-- Any failed validations
+Debug artifacts are saved to:
+```
+debug_output/
+├── element_detection/
+├── screen_captures/
+├── click_accuracy/
+└── metrics/
+```
 
 ## Error Handling
 
-The pipeline includes robust error handling and will:
-- Log all test failures
-- Provide detailed error messages
-- Clean up test artifacts
-- Maintain test isolation
+The pipelines implement robust error handling:
+- Detailed error logging
+- Recovery strategies
+- Test isolation
+- Resource cleanup
+- State validation
+
+## Metrics
+
+Key metrics tracked across pipelines:
+- Detection accuracy rates
+- Processing times
+- Success/failure ratios
+- Resource utilization
+- Error frequencies
+
+## Future Pipeline Development
+
+When creating new pipelines:
+
+1. **Structure**
+   - Follow established pipeline architecture
+   - Implement proper error handling
+   - Include comprehensive metrics
+   - Add debug visualization
+
+2. **Integration**
+   - Test component interactions
+   - Validate state transitions
+   - Monitor resource usage
+   - Measure performance impact
+
+3. **Documentation**
+   - Document pipeline purpose
+   - List test scenarios
+   - Explain metrics
+   - Provide usage examples
+
+## Contributing
+
+When adding new pipelines:
+1. Follow existing naming conventions
+2. Add comprehensive documentation
+3. Include test coverage
+4. Implement proper error handling
+5. Add relevant metrics

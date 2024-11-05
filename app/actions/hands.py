@@ -4,8 +4,9 @@ This interface is for Bob's hands. He can interact with the mouse or keyboard.
 import logging
 from typing import Dict, Tuple, Optional, Union
 import time
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
+from pathlib import Path
 
 class Hands:
     def __init__(self, mouse, keyboard):
@@ -72,15 +73,7 @@ class Hands:
 
     def click_element(self, element: Dict) -> bool:
         """
-        Clicks on a specific UI element with validation and retry logic.
-        
-        Args:
-            element: Dictionary containing element information
-                    Required keys: 'coordinates', 'type'
-                    Optional: 'confidence', 'text'
-                    
-        Returns:
-            bool: True if click was successful
+        Clicks on a specific UI element with improved accuracy and validation.
         """
         try:
             if not self._validate_element(element):
@@ -90,30 +83,53 @@ class Hands:
                 return False
 
             x, y = element['coordinates']
+            bbox = element.get('bbox')
             
-            # Move to element first
-            self.move_mouse(x, y, smooth=True)
-            time.sleep(self.click_delay)  # Configurable delay
-            
-            # Verify position with tolerance
-            current_x, current_y = self.mouse.get_position()
-            if (abs(current_x - x) > self.position_tolerance or 
-                abs(current_y - y) > self.position_tolerance):
-                logging.warning(f"Mouse position verification failed: expected ({x},{y}), got ({current_x},{current_y})")
+            # Validate click position is within bounding box if provided
+            if bbox:
+                x1, y1, x2, y2 = bbox
+                if not (x1 <= x <= x2 and y1 <= y <= y2):
+                    logging.error(f"Click coordinates ({x}, {y}) outside element bbox {bbox}")
+                    return False
+
+            # Move to element with multiple verification attempts
+            move_success = False
+            for attempt in range(3):
+                self.move_mouse(x, y, smooth=True)
+                time.sleep(self.click_delay)
+                
+                # Verify position with tolerance
+                current_x, current_y = self.mouse.get_position()
+                if (abs(current_x - x) <= self.position_tolerance and 
+                    abs(current_y - y) <= self.position_tolerance):
+                    move_success = True
+                    break
+                    
+                logging.warning(f"Move attempt {attempt + 1}: Expected ({x}, {y}), got ({current_x}, {current_y})")
+                time.sleep(0.1)  # Brief delay before retry
+
+            if not move_success:
+                logging.error("Failed to accurately position mouse for click")
                 return False
 
             # Perform click with confidence check
             if element.get('confidence', 1.0) < 0.8:
                 logging.warning(f"Low confidence click attempted: {element.get('confidence')}")
                 
+            # Add slight delay before click for stability
+            time.sleep(0.1)
             self.mouse.click(button='left')
+            
+            # Add slight delay after click
+            time.sleep(0.1)
+            
             self.last_action = ('click', element)
             self.last_action_time = time.time()
             
             return True
 
         except Exception as e:
-            logging.error(f"Click element error: {e}")
+            logging.error(f"Click element error: {e}", exc_info=True)
             return False
 
     def type_text(self, text: str, delay: float = 0.1) -> bool:
@@ -282,3 +298,17 @@ class Hands:
         Returns the last action performed.
         """
         return self.last_action
+
+    @property
+    def position(self) -> Tuple[int, int]:
+        """
+        Gets the current mouse position.
+        
+        Returns:
+            Tuple[int, int]: Current (x, y) coordinates of the mouse
+        """
+        try:
+            return self.mouse.get_position()
+        except Exception as e:
+            logging.error(f"Error getting mouse position: {e}")
+            return (0, 0)

@@ -528,3 +528,40 @@ class Eyesight:
         except Exception as e:
             logging.error(f"Error getting screen state: {e}")
             return None
+
+    def get_screen_image(self):
+        """
+        Gets the current screen image in the correct format.
+        
+        Returns:
+            PIL.Image: Current screen image in RGB format
+        """
+        try:
+            # Get current frame from screen
+            screenshot = self.screen.get_current_frame()
+            
+            # Validate and convert image format
+            if screenshot is None:
+                self.logger.error("Failed to capture screen image")
+                return None
+                
+            # Ensure we have a PIL Image
+            if isinstance(screenshot, np.ndarray):
+                if len(screenshot.shape) == 2:  # Grayscale
+                    screenshot = Image.fromarray(screenshot, 'L').convert('RGB')
+                elif len(screenshot.shape) == 3:
+                    if screenshot.shape[2] == 4:  # RGBA
+                        screenshot = Image.fromarray(screenshot, 'RGBA').convert('RGB')
+                    else:  # Assume BGR
+                        screenshot = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
+            elif not isinstance(screenshot, Image.Image):
+                raise ValueError(f"Unsupported image type: {type(screenshot)}")
+                
+            # Ensure RGB mode
+            screenshot = screenshot.convert('RGB')
+            
+            return screenshot
+            
+        except Exception as e:
+            self.logger.error(f"Error getting screen image: {e}")
+            return None

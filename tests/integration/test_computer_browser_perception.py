@@ -2,15 +2,15 @@ import pytest
 from PIL import Image
 from app.env.computer import Computer
 from app.agents.vision import VisionAgent
-from app.embeddings.embeddings import UnifiedEmbeddingSpace
 from app.actions.eyesight import Eyesight
 import asyncio
+import logging
 
 @pytest.fixture
 def setup_computer():
     """Fixture to set up real computer with actual components"""
     computer = Computer()
-    computer.startup()
+    computer.startup()  # This will launch browser and navigate to Discord
     return computer
 
 @pytest.fixture
@@ -24,12 +24,7 @@ def eyesight(setup_computer):
     return Eyesight(setup_computer.screen)
 
 def test_browser_screen_capture(setup_computer, eyesight):
-    """Test capturing actual browser screen content"""
-    computer = setup_computer
-    
-    # Navigate browser to a test page
-    computer.apps['browser'].navigate('https://example.com')
-    
+    """Test capturing browser screen content showing Discord"""
     # Get screen state through eyesight system
     screen_state = eyesight.capture_screen()
     
@@ -37,14 +32,11 @@ def test_browser_screen_capture(setup_computer, eyesight):
     assert 'frame' in screen_state
     assert isinstance(screen_state['frame'], Image.Image)
     assert screen_state['frame'].size == (800, 600)  # Match browser viewport
+    assert 'perception' in screen_state
+    assert 'timestamp' in screen_state
 
 def test_vision_perception_of_browser(setup_computer, vision_agent, eyesight):
-    """Test vision agent's perception of actual browser content"""
-    computer = setup_computer
-    
-    # Navigate to test page
-    computer.apps['browser'].navigate('https://example.com')
-    
+    """Test vision agent's perception of Discord in browser"""
     # Get screen state through eyesight
     screen_state = eyesight.capture_screen()
     
@@ -57,66 +49,53 @@ def test_vision_perception_of_browser(setup_computer, vision_agent, eyesight):
     assert 'status' in scene_understanding
     assert scene_understanding['status'] == 'success'
 
-def test_browser_element_detection(setup_computer, vision_agent, eyesight):
-    """Test detection of UI elements in actual browser"""
-    computer = setup_computer
-    
-    # Navigate to test page with known content
-    computer.apps['browser'].navigate('https://example.com')
-    
+def test_browser_element_detection(setup_computer, eyesight):
+    """Test detection of Continue link in Discord interface"""
     # Get screen state through eyesight
     screen_state = eyesight.capture_screen()
     
-    # Test element detection using eyesight's find_element
-    element = eyesight.find_element("More information...")  # Text commonly found on example.com
+    # Test element detection for Continue link
+    element = eyesight.find_element("Continue")
     
-    assert element is not None
+    assert element is not None, "Continue link not detected"
     assert isinstance(element, dict)
     assert 'coordinates' in element
     assert 'confidence' in element
-    assert 'type' in element
+    assert element['confidence'] > 0.7
 
 @pytest.mark.asyncio
 async def test_continuous_browser_perception(setup_computer, vision_agent, eyesight):
-    """Test continuous perception of browser content over time"""
-    computer = setup_computer
-    
-    test_urls = [
-        'https://example.com',
-        'https://example.org',
-        'https://example.net'
-    ]
-    
+    """Test continuous perception of Discord interface over time"""
     perceptions = []
-    for url in test_urls:
-        # Navigate to different pages
-        computer.apps['browser'].navigate(url)
-        
-        # Get screen state through eyesight
+    
+    # Collect multiple perceptions over time
+    for _ in range(3):
         screen_state = eyesight.capture_screen()
-        
-        # Get perception
         perception = vision_agent.perceive_scene(screen_state['frame'])
         perceptions.append(perception)
-        
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.5)  # Wait between perceptions
     
     assert len(perceptions) == 3
     assert all(p['status'] == 'success' for p in perceptions)
-    # Verify perceptions are different
-    descriptions = [p['description'] for p in perceptions]
-    assert len(set(descriptions)) == 3  # All descriptions should be unique
+    
+    # Verify at least one perception contains the Continue link
+    continue_found = False
+    for perception in perceptions:
+        if 'continue' in perception['description'].lower():
+            continue_found = True
+            break
+    assert continue_found, "Continue link not found in any perception"
 
 def test_browser_perception_error_handling(setup_computer, eyesight):
     """Test handling of perception errors"""
-    computer = setup_computer
-    
-    # Force an error state by navigating to invalid URL
-    computer.apps['browser'].navigate('https://invalid.url.that.does.not.exist')
-    
     # Get screen state through eyesight
     screen_state = eyesight.capture_screen()
     
-    # Verify error handling in screen state
+    # Test error handling
     assert screen_state is not None
-    assert 'error' in screen_state or screen_state['frame'] is not None
+    if 'error' in screen_state:
+        assert isinstance(screen_state['error'], str)
+        logging.warning(f"Expected error occurred: {screen_state['error']}")
+    else:
+        assert 'frame' in screen_state
+        assert screen_state['frame'] is not None

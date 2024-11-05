@@ -15,6 +15,8 @@ import discord
 import threading
 import multiprocessing
 from typing import Dict, Any, List
+import pyautogui
+import time
 
 
 class Computer(multiprocessing.Process):
@@ -183,3 +185,9 @@ class Computer(multiprocessing.Process):
         Returns current interaction mode.
         """
         return 'normal'
+
+    def minimize_all_windows(self):
+        """Minimize all windows to show the desktop"""
+        # Windows key + D shows the desktop
+        pyautogui.hotkey('win', 'd')
+        time.sleep(1)  # Wait for windows to minimize

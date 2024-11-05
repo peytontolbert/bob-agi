@@ -332,3 +332,23 @@ class Screen:
                 
         except Exception as e:
             logging.error(f"Error preparing canvas update: {e}")
+
+    def get_screen_image(self):
+        """
+        Returns the current screen image as a numpy array.
+        """
+        try:
+            current_frame = self.get_current_frame()
+            if current_frame is None:
+                logging.warning("No current frame available")
+                return None
+                
+            # Convert PIL Image to numpy array if needed
+            if isinstance(current_frame, Image.Image):
+                return np.array(current_frame)
+                
+            return current_frame
+            
+        except Exception as e:
+            logging.error(f"Error getting screen image: {e}")
+            return None
