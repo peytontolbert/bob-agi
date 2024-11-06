@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from app.env.discord import Discord
-from app.env.browser import Browser
+from app.env.computer.discord import Discord
+from app.env.computer.browser import Browser
 from selenium.common.exceptions import TimeoutException
 import discord  # Add this import to access discord.VoiceChannel
 

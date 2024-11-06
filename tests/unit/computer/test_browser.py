@@ -2,9 +2,9 @@ import pytest
 from unittest.mock import Mock, patch
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException, WebDriverException
-from app.env.browser import Browser
-from app.env.audio import Audio
-from app.env.microphone import Microphone
+from app.env.computer.browser import Browser
+from app.env.computer.audio import Audio
+from app.env.computer.microphone import Microphone
 from selenium.webdriver.support.ui import WebDriverWait
 
 @pytest.fixture

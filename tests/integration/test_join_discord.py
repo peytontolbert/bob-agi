@@ -2,8 +2,8 @@
 
 import pytest
 import logging
-from app.env.discord import Discord
-from app.env.computer import Computer
+from app.env.computer.discord import Discord
+from app.env.computer.computer import Computer
 from app.bob.bob import Bob
 import asyncio
 import time

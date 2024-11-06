@@ -6,7 +6,7 @@ from selenium.common.exceptions import TimeoutException
 import time
 
 from app.bob.bob import Bob
-from app.env.computer import Computer
+from app.env.computer.computer import Computer
 
 @pytest.fixture
 def computer():

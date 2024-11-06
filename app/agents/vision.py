@@ -14,22 +14,11 @@ from collections import defaultdict
 from functools import wraps
 import contextlib
 from typing import Optional, Dict, Any, Tuple
-from transformers import CLIPProcessor, CLIPModel
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
-from transformers import Blip2Processor, Blip2ForConditionalGeneration, Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor
-from transformers.generation import GenerationConfig
-from qwen_vl_utils import process_vision_info
-import io
-import base64
-from transformers import AutoModelForCausalLM
-import traceback
-import re
 import tempfile
-import supervision
-from PIL import ImageDraw
-from app.models.omniparser import OmniParser
 from app.models.qwenvl import QwenVL
+from app.models.samtwo import SAM2, SAM2Config
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -60,29 +49,47 @@ class VisionAgent(BaseAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Initialize models
-        self._initialize_models()
-        
-        # Initialize OmniParser and QwenVL
-        self.omniparser = OmniParser()
-        self.qwenvl = QwenVL()
-        
-        # Initialize CLIP
-        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        
-        if torch.cuda.is_available():
-            self.clip_model = self.clip_model.cuda()
-        
-        # Add transform for InternVL2
-        self.transform = self._build_transform(input_size=448)
-        
-        # Performance monitoring
-        self.processing_times = []
-        self.max_processing_times = 1000
-        self.error_counts = defaultdict(int)
-        self.last_error_reset = time.time()
-        self.error_threshold = 50
+        # Initialize models with error handling
+        try:
+            # Initialize SAM2 instead of OmniParser
+            self.sam2 = SAM2()
+            
+            # Initialize QwenVL with retries
+            max_retries = 3
+            self.qwenvl = None  # Initialize to None first
+            for attempt in range(max_retries):
+                try:
+                    self.qwenvl = QwenVL()
+                    if hasattr(self.qwenvl, 'model_healthy') and self.qwenvl.model_healthy:
+                        break
+                    raise RuntimeError("QwenVL model initialization incomplete")
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        logging.error(f"Failed to initialize QwenVL after {max_retries} attempts: {e}")
+                        raise
+                    logging.warning(f"QwenVL initialization attempt {attempt + 1} failed: {e}")
+                    time.sleep(1)  # Wait before retry
+            
+            # Get references to models from QwenVL
+            if self.qwenvl and self.qwenvl.model_healthy:
+                self.clip_processor = self.qwenvl.clip_processor
+                self.clip_model = self.qwenvl.clip_model
+            else:
+                raise RuntimeError("QwenVL initialization failed")
+            
+            # Add transform for InternVL2
+            self.transform = self._build_transform(input_size=448)
+            
+            # Performance monitoring
+            self.processing_times = []
+            self.max_processing_times = 1000
+            self.error_counts = defaultdict(int)
+            self.last_error_reset = time.time()
+            self.error_threshold = 50
+            
+        except Exception as e:
+            logging.error(f"Error initializing VisionAgent: {e}")
+            raise
 
     def _build_transform(self, input_size):
         """Build transform pipeline for InternVL2"""
@@ -92,32 +99,6 @@ class VisionAgent(BaseAgent):
             T.ToTensor(),
             T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
         ])
-
-    def _initialize_models(self):
-        """Initialize vision models including Qwen-VL"""
-        try:
-            # Initialize Qwen-VL on GPU if available
-            self.tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-VL-7B-Instruct", trust_remote_code=True)
-            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                "Qwen/Qwen2-VL-7B-Instruct",
-                device_map="cuda:0",
-                trust_remote_code=True
-            ).eval()
-            
-            # Keep CLIP for embeddings
-            self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-            self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-            
-            if torch.cuda.is_available():
-                self.clip_model = self.clip_model.cuda()
-                
-            logging.info("Vision models initialized successfully")
-            self.model_healthy = True
-            
-        except Exception as e:
-            logging.error(f"Failed to initialize vision models: {e}")
-            self.model_healthy = False
-            raise RuntimeError(f"Vision system initialization failed: {str(e)}")
 
     def _preprocess_image(self, image, max_num=12):
         """Preprocess image for InternVL2"""
@@ -200,7 +181,7 @@ class VisionAgent(BaseAgent):
 
     def perceive_scene(self, image, context=None):
         """
-        Main entry point for scene perception using InternVL2.
+        Main entry point for scene perception.
         
         Args:
             image: Input image (PIL Image, numpy array, or dict with 'frame' key)
@@ -210,23 +191,29 @@ class VisionAgent(BaseAgent):
             dict: Scene perception results
         """
         try:
-            # Validate and process image
-            processed_image = self._validate_and_process_image(image)
-            
-            # Generate base scene understanding
-            scene_result = self.understand_scene(processed_image, context)
-            
-            # Get visual embedding for multimodal processing if needed
-            if context and context.get('need_embedding', False):
-                embedding = self.get_visual_embedding(processed_image)
-                scene_result['embedding'] = embedding
+            # Handle case where QwenVL failed to initialize
+            if not hasattr(self, 'qwenvl') or self.qwenvl is None:
+                return {
+                    'status': 'error',
+                    'message': 'Vision system not properly initialized',
+                    'timestamp': time.time()
+                }
+
+            # Use OmniParser as fallback if QwenVL fails
+            try:
+                return self.qwenvl.perceive_scene(image, context)
+            except Exception as qwen_error:
+                logging.warning(f"QwenVL perception failed, falling back to OmniParser: {qwen_error}")
+                try:
+                    return self.omniparser.detect_elements(image, context)
+                except Exception as omni_error:
+                    logging.error(f"Both perception systems failed: {omni_error}")
+                    return {
+                        'status': 'error',
+                        'message': 'All perception systems failed',
+                        'timestamp': time.time()
+                    }
                 
-            return {
-                'status': 'success',
-                'scene': scene_result,
-                'timestamp': time.time()
-            }
-            
         except Exception as e:
             logging.error(f"Error in scene perception: {e}")
             return {
@@ -327,8 +314,8 @@ class VisionAgent(BaseAgent):
         }
 
     def detect_ui_elements(self, image, query=None):
-        """Detect UI elements using OmniParser"""
-        return self.omniparser.detect_elements(image, query)
+        """Detect UI elements using SAM2"""
+        return self.sam2.detect_elements(image, query)
 
     def _generate_detection_prompt(self, query):
         """
@@ -704,13 +691,3 @@ Remember to be precise with coordinate values and ensure they define a valid bou
             
         except Exception:
             return False
-
-    def _load_som_model(self):
-        """Load the OmniParser SOM model"""
-        try:
-            model = YOLO(WEIGHTS_PATH)
-            logging.info("OmniParser model loaded successfully")
-            return model
-        except Exception as e:
-            logging.error(f"Failed to load OmniParser model: {e}")
-            raise RuntimeError(f"OmniParser model initialization failed: {str(e)}")

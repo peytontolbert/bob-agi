@@ -1,7 +1,7 @@
 """
 Script to initialize Bob's environment and have him join the Agora discord voice channel.
 """
-from app.env.computer import Computer
+from app.env.computer.computer import Computer
 from app.bob.bob import Bob
 import logging
 

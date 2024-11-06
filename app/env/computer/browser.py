@@ -3,8 +3,8 @@ from selenium import webdriver
 from selenium.webdriver.edge.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from app.env.audio import Audio
-from app.env.microphone import Microphone
+from app.env.computer.audio import Audio
+from app.env.computer.microphone import Microphone
 import threading
 from PIL import Image
 import io

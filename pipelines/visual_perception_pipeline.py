@@ -7,11 +7,9 @@ from datetime import datetime
 import numpy as np
 from PIL import Image
 import os
-from app.env.computer import Computer
-from app.env.screen import Screen
+from app.env.computer.computer import Computer
 from app.env.senses.eyesight import Eyesight
 from app.agents.vision import VisionAgent
-import cv2
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

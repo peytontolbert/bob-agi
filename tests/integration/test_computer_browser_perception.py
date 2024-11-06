@@ -1,6 +1,6 @@
 import pytest
 from PIL import Image
-from app.env.computer import Computer
+from app.env.computer.computer import Computer
 from app.agents.vision import VisionAgent
 from app.env.senses.eyesight import Eyesight
 import asyncio

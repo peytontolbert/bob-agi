@@ -18,10 +18,10 @@ import threading
 import cv2
 
 class Eyesight:
-    def __init__(self, screen):
+    def __init__(self, screen, vision_agent: Optional[VisionAgent] = None):
         self.screen = screen
         self.vision_queue = queue.Queue()
-        self.vision_agent = VisionAgent()
+        self.vision_agent = vision_agent
         self.is_running = True
         
         # Initialize CLIP model for embeddings

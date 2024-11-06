@@ -1,13 +1,13 @@
 import pytest
 from unittest.mock import Mock, patch
-from app.env.computer import Computer
-from app.env.screen import Screen
-from app.env.audio import Audio
-from app.env.microphone import Microphone
-from app.env.keyboard import Keyboard
-from app.env.mouse import Mouse
-from app.env.browser import Browser
-from app.env.discord import Discord
+from app.env.computer.computer import Computer
+from app.env.computer.screen import Screen
+from app.env.computer.audio import Audio
+from app.env.computer.microphone import Microphone
+from app.env.computer.keyboard import Keyboard
+from app.env.computer.mouse import Mouse
+from app.env.computer.browser import Browser
+from app.env.computer.discord import Discord
 
 @pytest.fixture
 def mock_components():

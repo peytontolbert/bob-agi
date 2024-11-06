@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from app.env.microphone import Microphone
+from app.env.computer.microphone import Microphone
 import pyaudio
 
 class TestMicrophone(unittest.TestCase):

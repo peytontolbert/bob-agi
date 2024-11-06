@@ -20,11 +20,16 @@ from app.embeddings.embeddings import UnifiedEmbeddingSpace
 class Bob:
     def __init__(self, computer):
         try:
+            # Initialize AI agents
+            self.text_agent = TextAgent()
+            self.vision_agent = VisionAgent()
+            self.speech_agent = SpeechAgent()
+            
             # Initialize core systems
             self.knowledge_system = KnowledgeSystem()
             self.hearing = Hearing(computer.audio)
             self.voice = Voice(computer.microphone)
-            self.eyes = Eyesight(computer.screen)
+            self.eyes = Eyesight(computer.screen, self.vision_agent)
             
             # Initialize hands with error handling
             try:
@@ -35,10 +40,6 @@ class Bob:
                 
             self.thoughts = Thinking(self.knowledge_system)
             
-            # Initialize AI agents
-            self.text_agent = TextAgent()
-            self.vision_agent = VisionAgent()
-            self.speech_agent = SpeechAgent()
 
             # Time windows and processing rates
             self.QUEUE_TIME_WINDOW = 10  # 10 seconds window

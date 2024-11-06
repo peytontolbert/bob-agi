@@ -1,6 +1,6 @@
 from tests.test_base import BaseTest
 from unittest.mock import patch
-from app.env.computer import Computer
+from app.env.computer.computer import Computer
 from app.bob.bob import Bob
 import pytest
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import json
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from app.env.computer import Computer
+from app.env.computer.computer import Computer
 from app.actions.hands import Hands
 
 @dataclass

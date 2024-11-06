@@ -4,7 +4,7 @@ The interface for Bob's hearing for the computer.
 from app.agents.audio import AudioAgent
 import logging
 import numpy as np
-from app.env.audio import Audio
+from app.env.computer.audio import Audio
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 

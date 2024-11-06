@@ -1,16 +1,6 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from app.bob.bob import Bob
-from app.env.senses.hearing import Hearing
-from app.env.senses.eyesight import Eyesight
-from app.actions.thinking import Thinking
-from app.actions.hands import Hands
-from app.actions.voice import Voice
-from app.memory.knowledge_system import KnowledgeSystem
-from app.agents.text import TextAgent
-from app.agents.vision import VisionAgent
-from app.agents.speech import SpeechAgent
-from app.embeddings.embeddings import UnifiedEmbeddingSpace
 import numpy as np
 
 @pytest.fixture

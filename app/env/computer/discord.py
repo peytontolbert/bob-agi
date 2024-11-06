@@ -7,8 +7,8 @@ import asyncio
 import os
 import docker
 import subprocess
-from app.env.browser import Browser
-import discord
+from app.env.computer.browser import Browser
+import app.env.computer.discord as discord
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException

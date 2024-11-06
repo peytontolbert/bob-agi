@@ -3,10 +3,10 @@ import time
 from unittest.mock import Mock
 from app.agents.vision import VisionAgent 
 from app.env.senses.eyesight import Eyesight
-from app.env.computer import Computer
-from app.env.browser import Browser
-from app.env.screen import Screen
-from app.env.discord import Discord
+from app.env.computer.computer import Computer
+from app.env.computer.browser import Browser
+from app.env.computer.screen import Screen
+from app.env.computer.discord import Discord
 from app.embeddings.embeddings import UnifiedEmbeddingSpace
 from PIL import Image
 import numpy as np

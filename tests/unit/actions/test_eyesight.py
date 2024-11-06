@@ -18,7 +18,7 @@ class TestEyesight:
     def computer(self):
         """Initialize real computer environment"""
         try:
-            from app.env.computer import Computer
+            from app.env.computer.computer import Computer
             computer = Computer()
             computer.startup()
             yield computer

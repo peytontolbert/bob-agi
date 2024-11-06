@@ -2,16 +2,16 @@
 The computer environment is the main environment that Bob will interact with.
 This needs to include the applications that Bob will use, a functioning mouse and keyboard that Bob will control, and a screen that Bob will see.
 """
-from app.env.discord import Discord
-from app.env.browser import Browser
-from app.env.screen import Screen
-from app.env.microphone import Microphone
-from app.env.audio import Audio
-from app.env.keyboard import Keyboard
-from app.env.mouse import Mouse
+from app.env.computer.discord import Discord
+from app.env.computer.browser import Browser
+from app.env.computer.screen import Screen
+from app.env.computer.microphone import Microphone
+from app.env.computer.audio import Audio
+from app.env.computer.keyboard import Keyboard
+from app.env.computer.mouse import Mouse
 import logging
 import subprocess
-import discord
+import app.env.computer.discord as discord
 import threading
 import multiprocessing
 from typing import Dict, Any, List

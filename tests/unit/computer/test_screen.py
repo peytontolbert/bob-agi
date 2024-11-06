@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 import threading
 from unittest.mock import Mock, patch, MagicMock
-from app.env.screen import Screen
+from app.env.computer.screen import Screen
 import time
 from psutil import Process
 

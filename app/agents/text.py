@@ -24,7 +24,25 @@ class TextAgent(BaseAgent):
     def complete_task(self, input):
         """Complete text task with optional image input"""
         # Check if input contains an image tag
-        if "<image>" in input and "</image>" in input:
+        if isinstance(input, dict) and "query" in input and "image" in input:
+            query = input["query"]
+            image = self.encode_image(input["image"])
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": query},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        elif isinstance(input, str) and "<image>" in input and "</image>" in input:
             # Extract base64 string between image tags
             start_idx = input.find("<image>") + 7
             end_idx = input.find("</image>")
@@ -36,7 +54,12 @@ class TextAgent(BaseAgent):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": input[:start_idx-7]},  # Text before image
-                        {"type": "image_url", "image_url": f"data:image/png;base64,{base64_str}"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{base64_str}"
+                            }
+                        },
                         {"type": "text", "text": input[end_idx+8:]}  # Text after image
                     ]
                 }

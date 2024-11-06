@@ -1,7 +1,7 @@
 import unittest
 import time  # Add import for time
-from app.env.mouse import Mouse
-from app.env.screen import Screen
+from app.env.computer.mouse import Mouse
+from app.env.computer.screen import Screen
 
 class TestMouse(unittest.TestCase):
     def setUp(self):

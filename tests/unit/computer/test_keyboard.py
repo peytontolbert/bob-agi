@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
-from app.env.keyboard import Keyboard
+from app.env.computer.keyboard import Keyboard
 import threading
 import time
 
