@@ -30,7 +30,7 @@ class Bob:
             self.hearing = Hearing(computer.browser)
             self.hearing.start_listening()
             self.voice = Voice(computer.browser)
-            self.eyes = Eyesight(computer.browser, self.vision_agent)
+            #self.eyes = Eyesight(computer.browser, self.vision_agent)
             
             # Initialize hands with error handling
             #try:
@@ -103,17 +103,17 @@ class Bob:
         
         try:
             # Process visual input with context-aware scene understanding
-            if env.get('visual'):
-                visual_data = self._process_visual_input(
-                    env['visual'], 
-                    self.interaction_context
-                )
-                processed_data['visual'] = visual_data
-                
-                # Update interaction context
-                self.interaction_context['visual_memory'].append(visual_data)
-                if len(self.interaction_context['visual_memory']) > 10:
-                    self.interaction_context['visual_memory'].pop(0)
+            #if env.get('visual'):
+            #    visual_data = self._process_visual_input(
+            #        env['visual'], 
+            #        self.interaction_context
+            #    )
+            #    processed_data['visual'] = visual_data
+            #    
+            #    # Update interaction context
+            #    self.interaction_context['visual_memory'].append(visual_data)
+            #    if len(self.interaction_context['visual_memory']) > 10:
+            #        self.interaction_context['visual_memory'].pop(0)
 
             # Process audio input if needed
             if env.get('audio'):
@@ -125,7 +125,7 @@ class Bob:
 
             # Generate thoughts based on current goal and environment
             thoughts = self._generate_action_thoughts(
-                visual_data=processed_data['visual'],
+                #visual_data=processed_data['visual'],
                 audio_data=processed_data['audio'],
                 current_goal=self.interaction_context['current_goal']
             )
@@ -137,54 +137,6 @@ class Bob:
             self.logger.error(f"Error in process_environment: {e}")
             return processed_data
 
-    def _process_visual_input(self, visual_input, thought_context):
-        """
-        Process visual input using context-aware scene understanding.
-        Only detect specific elements when needed for actions.
-        """
-        try:
-            # Get high-level scene understanding using Qwen-VL
-            scene_understanding = self.vision_agent.perceive_scene(
-                visual_input,
-                thought_context
-            )
-            
-            # Store last scene understanding
-            self.last_scene_understanding = scene_understanding
-            
-            visual_data = {
-                'scene_understanding': scene_understanding,
-                'timestamp': time(),
-                'context': thought_context
-            }
-            
-            # Only detect elements if we need precise locations
-            if self._needs_element_detection(thought_context):
-                detected_elements = self.vision_agent.detect_elements(visual_input)
-                visual_data['elements'] = detected_elements
-                
-            return visual_data
-            
-        except Exception as e:
-            self.logger.error(f"Error processing visual input: {e}")
-            return {}
-
-    def _needs_element_detection(self, context):
-        """
-        Determine if we need precise element detection based on context.
-        """
-        if not context:
-            return False
-            
-        # Check if current goal or thought focus suggests need for interaction
-        interaction_indicators = ['click', 'select', 'find', 'locate', 'interact']
-        
-        goal = context.get('current_goal', '').lower()
-        focus = context.get('thought_focus', '').lower()
-        
-        return any(indicator in goal or indicator in focus 
-                  for indicator in interaction_indicators)
-
     def _integrate_modalities(self, processed_data):
         """
         Integrate multiple modalities using embeddings and context history.
@@ -193,7 +145,6 @@ class Bob:
         unified_embedding = processed_data['embeddings'].get('unified')
         
         context = {
-            'scene_understanding': processed_data['visual'].get('scene_understanding'),
             'audio_input': processed_data['audio'].get('transcription', ''),
             'detected_commands': processed_data['audio'].get('commands', []),
             'recent_actions': self.interaction_context.get('last_action'),
@@ -221,7 +172,6 @@ class Bob:
         """
         prompt = f"""
         Given the current context:
-        Scene: {context['scene_understanding']}
         Audio: {context['audio_input']}
         Goal: {context['current_goal']}
         Recent Action: {context['recent_actions']}
@@ -283,30 +233,21 @@ class Bob:
             Given these thoughts about the current goal:
             {thoughts}
             
-            What specific UI element do we need to find and interact with?
-            Return as a simple description like: "Discord login button" or "Agora voice channel icon"
+            What action to take next? Speech or observation.
+
+            respond in this format:
+            {{{'type': 'speech', 'description': 'speech description'}}}
+            or
+            {{{'type': 'observation', 'description': 'observation description'}}}
             """
-            
             target_description = self.text_agent.complete_task(target_element_prompt)
             
             # Use vision agent to find the specific element
             if target_description:
-                element = self.eyes.find_element(target_description)
-                
-                if element:
-                    # Determine action type based on goal steps
-                    action_type = 'click'  # Default to click
-                    if 'type' in str(current_goal).lower():
-                        action_type = 'type'
-                    
-                    return {
-                        'type': action_type,
-                        'element': element,
-                        'description': target_description,
-                        'confidence': element.get('confidence', 0)
-                    }
-            
-            return None
+                return {
+                    'type': 'speech',
+                    'description': target_description
+                }
             
         except Exception as e:
             self.logger.error(f"Error deciding action: {e}")
@@ -334,29 +275,6 @@ class Bob:
             self.logger.error(f"Error converting decision to action: {e}")
             return None
 
-    def _create_interaction_action(self, decision, context):
-        """
-        Creates an interaction action based on the decision.
-        """
-        # Parse the decision to determine the target element and action
-        target_element = None
-        action = None
-        for element in context['visual_elements']:
-            if element['type'] in decision.lower():
-                target_element = element
-                action = 'click'  # or other action based on context
-                break
-        
-        if target_element:
-            return {
-                'type': 'interaction',
-                'element': target_element,
-                'action': action,
-                'timestamp': time()
-            }
-        
-        return None
-
     def _create_speech_action(self, decision):
         """
         Creates a speech action based on the decision.
@@ -377,9 +295,7 @@ class Bob:
         """
         Determines the type of action based on the decision.
         """
-        if 'interaction' in decision.lower():
-            return 'interaction'
-        elif 'speech' in decision.lower():
+        if 'speech' in decision.lower():
             return 'speech'
         elif 'observation' in decision.lower():
             return 'observation'
@@ -397,22 +313,7 @@ class Bob:
         try:
             self.action_start_time = time()
             
-            if action['type'] == 'interaction':
-                # Handle UI interaction
-                element = action['element']
-                if action.get('action') == 'click':
-                    success = self.hands.click_element(element)
-                elif action.get('action') == 'type':
-                    success = self.hands.type_text(action['text'])
-                
-                result = {
-                    'success': success,
-                    'action_type': 'interaction',
-                    'target': element,
-                    'timestamp': time()
-                }
-                
-            elif action['type'] == 'speech':
+            if action['type'] == 'speech':
                 # Handle speech output
                 self.voice.start_speaking(action['content'])
                 result = {
@@ -473,7 +374,7 @@ class Bob:
                     
                     # Decide and execute action
                     action = self.decide_action(processed_env)
-                    if action and self.hands:  # Check if hands available
+                    if action:  # Check if hands available
                         result = self.execute_action(action)
                         
                         # Add experience to thoughts

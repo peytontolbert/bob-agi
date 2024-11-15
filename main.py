@@ -2,34 +2,26 @@
 Script to initialize Bob's environment and have him join the Agora discord voice channel.
 """
 from app.env.computer.computer import Computer
-from app.bob.bob import Bob
+from pipelines.join_agora_voice_channel import join_agora_voice_channel
+from app.bob.test_bob import Bob
 import logging
 
 def main():
     # Setup logging
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    
+
     try:
         # Initialize computer and Bob
         logger.info("Initializing computer environment...")
         computer = Computer()
-        
+        computer.startup()
+        logger.info("Joining Agora voice channel...")
+        join_agora_voice_channel(computer.browser)
         logger.info("Starting Bob...")
+
         bob = Bob(computer)
         
-        # Set Bob's current goal to join Discord voice channel
-        bob.interaction_context['current_goal'] = {
-            'type': 'join_voice_channel',
-            'target': 'Agora',
-            'application': 'Discord',
-            'steps': [
-                'open_discord',
-                'navigate_to_agora_server',
-                'find_voice_channel',
-                'join_voice_channel'
-            ]
-        }
         
         logger.info("Goal set: Join Agora Discord voice channel")
         

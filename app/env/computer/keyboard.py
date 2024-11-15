@@ -1,4 +1,6 @@
 import threading
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 import time
 import logging
 
@@ -7,14 +9,14 @@ class Keyboard:
     Simulates a keyboard for textual input.
     Streams input at an average typing speed to the target application or screen.
     """
-    def __init__(self, target, typing_speed=5):
+    def __init__(self, driver, typing_speed=5):
         """
         Initializes the Keyboard.
 
-        :param target: The target application or screen to receive inputs.
+        :param driver: The browser driver instance.
         :param typing_speed: Average typing speed in characters per second.
         """
-        self.target = target
+        self.driver = driver
         self.typing_speed = typing_speed  # characters per second
         self.input_queue = []
         self.running = False
@@ -63,3 +65,25 @@ class Keyboard:
                     time.sleep(1 / self.typing_speed)
             else:
                 time.sleep(0.1)  # Wait before checking the queue again
+
+    def type_text(self, text):
+        """Type text into the currently focused element."""
+        try:
+            actions = ActionChains(self.driver)
+            actions.send_keys(text)
+            actions.perform()
+            print(f"Typed text")
+            time.sleep(0.5)  # Small delay after typing
+        except Exception as e:
+            print(f"Error typing text: {e}")
+
+    def press_key(self, key):
+        """Press a specific key (e.g., Enter, Tab, etc.)."""
+        try:
+            actions = ActionChains(self.driver)
+            actions.send_keys(getattr(Keys, key.upper()))
+            actions.perform()
+            print(f"Pressed key: {key}")
+            time.sleep(0.5)  # Small delay after key press
+        except Exception as e:
+            print(f"Error pressing key: {e}")

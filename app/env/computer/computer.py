@@ -11,7 +11,6 @@ from app.env.computer.keyboard import Keyboard
 from app.env.computer.mouse import Mouse
 import logging
 import subprocess
-import app.env.computer.discord as discord
 import threading
 import multiprocessing
 from typing import Dict, Any, List
@@ -22,26 +21,8 @@ import time
 class Computer(multiprocessing.Process):
     def __init__(self):
         super().__init__()
-        self.screen = Screen()
-        self.audio = Audio()
-        self.microphone = Microphone()
-        self.keyboard = Keyboard(target=self.screen)
-        self.mouse = Mouse(target=self.screen, movement_speed=1.0)
-
-        self.apps = {
-            "browser": Browser(audio=self.audio, microphone=self.microphone, screen=self.screen),
-            "discord": None  # Will be initialized after browser
-        }
+        self.browser = Browser()
         
-        # Initialize Discord after browser setup
-        self.discord = None
-        
-        # Start sending audio in a separate thread
-        audio_stream_thread = threading.Thread(target=self.microphone.start_sending_audio, daemon=True)
-        audio_stream_thread.start()
-        
-        self.screen_container = None
-
     def run(self):
         self.startup()
 
@@ -50,41 +31,9 @@ class Computer(multiprocessing.Process):
         Initializes all components of the computer environment.
         """
         try:
-            # Initialize core components
-            self.screen.initialize()
-            self.audio.initialize() 
-            self.microphone.initialize()
-            
             # Launch browser in container
             logging.info("Launching browser...")
-            if not self.launch_app("browser"):
-                raise Exception("Failed to launch browser")
-            
-            # Wait for browser to be ready
-            if not self.apps["browser"].webdriver:
-                raise Exception("Browser WebDriver not initialized")
-                
-            # Ensure screen is receiving frames
-            if not self.screen.get_current_frame():
-                logging.warning("Screen not receiving frames, checking connection...")
-                self.apps["browser"].set_screen(self.screen)
-                
-            # Initialize and launch Discord after browser is ready
-            logging.info("Initializing Discord...")
-            self.discord = Discord(browser=self.apps["browser"])
-            self.apps["discord"] = self.discord
-            
-            # Launch Discord
-            if not self.launch_app("discord"):
-                logging.error("Failed to launch Discord")
-            
-            # Start input devices
-            self.mouse.start()
-            self.keyboard.start()
-            
-            # Initialize frame buffer for eyesight
-            self.screen.frame_buffer = []
-            
+            self.browser.navigate("https://discord.com/channels/@me")
             logging.info("Computer environment started successfully")
             
         except Exception as e:

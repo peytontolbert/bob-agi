@@ -1,11 +1,12 @@
 import logging
 import tkinter as tk
 import os
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import numpy as np
 import time
 import cv2
 import threading
+
 
 class Screen:
     def __init__(self):
@@ -72,19 +73,88 @@ class Screen:
             self.window.mainloop()
         except Exception as e:
             logging.error(f"Error in Tk event loop: {e}")
+    def normalize_coordinates(self, x, y, from_screenshot=True):
+        """
+        Convert coordinates between screenshot (1000x1000) and viewport spaces.
+        
+        Args:
+            x (float): X coordinate
+            y (float): Y coordinate
+            from_screenshot (bool): If True, convert from screenshot to viewport.
+                                  If False, convert from viewport to screenshot.
+        
+        Returns:
+            tuple: (normalized_x, normalized_y)
+        """
+        if from_screenshot:
+            # Convert from 1000x1000 screenshot space to viewport space
+            normalized_x = (x * self.viewport_width) / self.screenshot_width
+            normalized_y = (y * self.viewport_height) / self.screenshot_height
+            print(f"Converting screenshot ({x}, {y}) -> viewport ({normalized_x}, {normalized_y})")
+        else:
+            # Convert from viewport space to 1000x1000 screenshot space
+            normalized_x = (x * self.screenshot_width) / self.viewport_width
+            normalized_y = (y * self.screenshot_height) / self.viewport_height
+            print(f"Converting viewport ({x}, {y}) -> screenshot ({normalized_x}, {normalized_y})")
+        
+        return normalized_x, normalized_y
 
-    def update_mouse_position(self, event):
-        """
-        Updates the current mouse position.
-        """
-        self.mouse_position = (event.x, event.y)
-        logging.debug(f"Mouse position updated to {self.mouse_position}")
+    def take_screenshot(self, filename="images/screenshot.png"):
+        """Take a screenshot and overlay coordinate system scaled to 1000x1000."""
+        # Take the screenshot
+        self.driver.save_screenshot(filename)
+        
+        try:
+            # Open and resize the screenshot to 1000x1000
+            image = Image.open(filename)
+            draw = ImageDraw.Draw(image)
 
-    def get_mouse_position(self):
-        """
-        Returns the current mouse position.
-        """
-        return self.mouse_position
+            try:
+                font = ImageFont.truetype("arial.ttf", 15)
+            except IOError:
+                font = None
+            
+            # Overlay the mouse position if available
+            if self.last_mouse_position:
+                # Draw viewport coordinates in red
+                viewport_x, viewport_y = self.last_mouse_position
+                mouse_size = 10
+                draw.ellipse(
+                    (viewport_x - mouse_size, viewport_y - mouse_size, 
+                     viewport_x + mouse_size, viewport_y + mouse_size),
+                    fill='red',
+                    outline='black'
+                )
+                draw.text((viewport_x + 15, viewport_y), 
+                         f"Viewport: ({int(viewport_x)}, {int(viewport_y)})", 
+                         fill="red", 
+                         font=font)
+                
+                # Draw screenshot coordinates in blue
+                screenshot_x, screenshot_y = self.normalize_coordinates(
+                    viewport_x, 
+                    viewport_y, 
+                    from_screenshot=False
+                )
+                draw.ellipse(
+                    (screenshot_x - mouse_size, screenshot_y - mouse_size, 
+                     screenshot_x + mouse_size, screenshot_y + mouse_size),
+                    fill='blue',
+                    outline='black'
+                )
+                draw.text((screenshot_x + 15, screenshot_y + 25), 
+                         f"Screenshot: ({int(screenshot_x)}, {int(screenshot_y)})", 
+                         fill="blue", 
+                         font=font)
+
+            image = image.resize((self.screenshot_width, self.screenshot_height))
+            # Save the modified screenshot
+            image.save(filename)
+            print(f"Enhanced screenshot saved with viewport and screenshot coordinates at {filename}")
+        except Exception as e:
+            print(f"Error processing screenshot: {e}")
+
+
 
     def update_frame(self, frame):
         """

@@ -1,5 +1,5 @@
 """
-This interface is for Bob's hands. He can interact with the mouse or keyboard.
+This interface is for Bob's hands. He can interact with the mouse or keyboard through the browser.
 """
 import logging
 from typing import Dict, Tuple, Optional, Union
@@ -7,11 +7,19 @@ import time
 from PIL import Image, ImageDraw
 import numpy as np
 from pathlib import Path
+from app.env.computer.browser import Browser
 
 class Hands:
-    def __init__(self, mouse, keyboard):
-        self.mouse = mouse
-        self.keyboard = keyboard
+    def __init__(self, browser: Browser):
+        """
+        Initialize hands with browser instance for mouse/keyboard control
+        
+        Args:
+            browser: Browser instance that provides mouse and keyboard control
+        """
+        self.browser = browser
+        self.mouse = browser.mouse
+        self.keyboard = browser.keyboard
         self.last_action = None
         self.last_action_time = None
         self.action_cooldown = 0.1  # 100ms minimum between actions
@@ -28,12 +36,6 @@ class Hands:
     def initialize(self):
         """Initialize the hands system."""
         try:
-            # Only start mouse/keyboard threads if not already running
-            if not self.mouse.is_running():
-                self.mouse.start()
-            if not self.keyboard.is_running():
-                self.keyboard.start()
-                
             self.initialized = True
             logging.info("Hands system initialized successfully")
             
@@ -62,7 +64,8 @@ class Hands:
                 logging.warning(f"Invalid coordinates: ({x}, {y})")
                 return False
 
-            self.mouse.move_to(x, y, smooth=smooth)
+            # Use browser's mouse move method
+            self.mouse.move_mouse_to(x, y)
             self.last_action = ('move', (x, y))
             self.last_action_time = time.time()
             return True
@@ -83,49 +86,12 @@ class Hands:
                 return False
 
             x, y = element['coordinates']
-            bbox = element.get('bbox')
             
-            # Validate click position is within bounding box if provided
-            if bbox:
-                x1, y1, x2, y2 = bbox
-                if not (x1 <= x <= x2 and y1 <= y <= y2):
-                    logging.error(f"Click coordinates ({x}, {y}) outside element bbox {bbox}")
-                    return False
-
-            # Move to element with multiple verification attempts
-            move_success = False
-            for attempt in range(3):
-                self.move_mouse(x, y, smooth=True)
-                time.sleep(self.click_delay)
-                
-                # Verify position with tolerance
-                current_x, current_y = self.mouse.get_position()
-                if (abs(current_x - x) <= self.position_tolerance and 
-                    abs(current_y - y) <= self.position_tolerance):
-                    move_success = True
-                    break
-                    
-                logging.warning(f"Move attempt {attempt + 1}: Expected ({x}, {y}), got ({current_x}, {current_y})")
-                time.sleep(0.1)  # Brief delay before retry
-
-            if not move_success:
-                logging.error("Failed to accurately position mouse for click")
-                return False
-
-            # Perform click with confidence check
-            if element.get('confidence', 1.0) < 0.8:
-                logging.warning(f"Low confidence click attempted: {element.get('confidence')}")
-                
-            # Add slight delay before click for stability
-            time.sleep(0.1)
-            self.mouse.click(button='left')
-            
-            # Add slight delay after click
-            time.sleep(0.1)
+            # Use browser's click method
+            self.mouse.click_at(x, y)
             
             self.last_action = ('click', element)
             self.last_action_time = time.time()
-            
             return True
 
         except Exception as e:
@@ -151,11 +117,11 @@ class Hands:
             if not self._check_action_cooldown():
                 return False
 
-            # Send text to keyboard with natural timing
-            self.keyboard.send_input(text)
+            # Use browser's keyboard type method
+            self.keyboard.type_text(text)
+            
             self.last_action = ('type', text)
             self.last_action_time = time.time()
-            
             return True
 
         except Exception as e:
